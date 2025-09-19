@@ -3,13 +3,17 @@ URL configuration for MCP app
 """
 
 from django.urls import path
-from . import views, admin_views, mcp_transport
+from . import views, admin_views, mcp_transport, openai_mcp_transport
 
 urlpatterns = [
     path('', views.index, name='mcp_index'),
+
+    # OpenAI Realtime Compatible MCP Transport (RECOMMENDED)
+    path('api/mcp/', openai_mcp_transport.OpenAIMCPTransport.as_view(), name='openai_mcp'),
+    path('api/mcp/health/', openai_mcp_transport.OpenAIMCPHealthCheck.as_view(), name='openai_mcp_health'),
     
-    # MCP Streamable HTTP Transport (OpenAI Realtime compatible)
-    path('api/mcp/', mcp_transport.MCPStreamableHTTPView.as_view(), name='mcp_streamable'),
+    # Legacy MCP Streamable HTTP Transport (for testing)
+    path('api/mcp/legacy/', mcp_transport.MCPStreamableHTTPView.as_view(), name='mcp_streamable'),
     path('api/mcp/capabilities/', mcp_transport.MCPCapabilitiesView.as_view(), name='mcp_capabilities'),
     path('api/mcp/tools/', mcp_transport.MCPToolsListView.as_view(), name='mcp_tools_list'),
     
@@ -27,4 +31,7 @@ urlpatterns = [
     path('api/admin/credentials/<int:credential_id>/', admin_views.CredentialManagementView.as_view(), name='admin_credential_detail'),
     path('api/admin/scopes/', admin_views.ScopeManagementView.as_view(), name='admin_scopes'),
     path('api/admin/dashboard/<str:tenant_id>/', admin_views.TenantDashboardView.as_view(), name='admin_dashboard'),
+    
+    # OpenAI-compatible token generation
+    path('api/admin/openai-tokens/', admin_views.OpenAITokenView.as_view(), name='openai_tokens'),
 ]

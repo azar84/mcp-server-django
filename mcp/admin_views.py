@@ -13,6 +13,7 @@ import uuid
 import secrets
 from .models import Tenant, AuthToken, ClientCredential
 from .auth import mcp_authenticator
+from .jwt_utils import create_openai_compatible_token
 
 
 class TenantManagementView(APIView):
@@ -327,3 +328,61 @@ class TenantDashboardView(APIView):
             },
             'recent_calls': recent_calls[:20]
         })
+
+
+class OpenAITokenView(APIView):
+    """Generate OpenAI-compatible JWT tokens"""
+    
+    def post(self, request):
+        """Create an OpenAI-compatible token with embedded tenant info"""
+        try:
+            tenant_id = request.data.get('tenant_id')
+            scopes = request.data.get('scopes', [])
+            expires_in_days = request.data.get('expires_in_days', 365)
+            
+            if not tenant_id:
+                return Response({
+                    'error': 'tenant_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get tenant
+            try:
+                tenant = Tenant.objects.get(tenant_id=tenant_id, is_active=True)
+            except Tenant.DoesNotExist:
+                return Response({
+                    'error': 'Tenant not found or inactive'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Create OpenAI-compatible JWT token
+            token_data = create_openai_compatible_token(
+                tenant=tenant,
+                scopes=scopes,
+                expires_in_days=expires_in_days
+            )
+            
+            # Create AuthToken record with the token secret (for database lookup)
+            auth_token = AuthToken.objects.create(
+                token=token_data['token_secret'],  # Store the secret for lookup
+                tenant=tenant,
+                scopes=scopes,
+                expires_at=timezone.now() + timedelta(days=expires_in_days),
+                is_active=True
+            )
+            
+            return Response({
+                'message': f'OpenAI-compatible token created for tenant {tenant.name}',
+                'token_info': {
+                    'jwt_token': token_data['jwt_token'],  # This is what you give to OpenAI
+                    'tenant_id': tenant.tenant_id,
+                    'tenant_name': tenant.name,
+                    'scopes': scopes,
+                    'expires_at': auth_token.expires_at.isoformat(),
+                    'created_at': auth_token.created_at.isoformat(),
+                    'usage_note': 'Use jwt_token as the Bearer token in OpenAI Realtime'
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
