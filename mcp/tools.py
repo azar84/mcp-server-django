@@ -58,7 +58,7 @@ def register_default_tools():
     
     # Server status tool - no scopes required
     protocol_handler.register_tool(
-        name="general.get_server_status",
+        name="general_get_server_status",
         description="Check if the MCP server is working and get basic server information. Use this when user asks 'is the server working', 'test connection', or 'server status'.",
         input_schema={
             "type": "object",

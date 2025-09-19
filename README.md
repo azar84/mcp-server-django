@@ -14,7 +14,7 @@ A production-ready **Model Context Protocol (MCP) Server** built with Django, de
 
 ### Available Tools
 - **General Tools**
-  - `general.get_server_status` - Server health and connection testing
+  - `general_get_server_status` - Server health and connection testing
 - **Booking Tools**
   - `bookings.get_staff_availability` - Microsoft Bookings staff availability
 
@@ -202,7 +202,7 @@ curl -X POST https://your-server.herokuapp.com/api/mcp/ \
   -H "Authorization: Bearer your-token" \
   -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general.get_server_status","arguments":{}}}'
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general_get_server_status","arguments":{}}}'
 ```
 
 ## 📊 Admin Panel
