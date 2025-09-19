@@ -25,23 +25,32 @@ def extract_tenant_from_token(bearer_token):
     try:
         # Try to decode as JWT first (if using JWT tokens)
         try:
-            # For JWT tokens, decode and extract tenant_id
+            # For JWT tokens, decode and extract tenant_id and token_secret
             decoded = jwt.decode(bearer_token, options={"verify_signature": False})
             tenant_id = decoded.get('tenant_id')
-            if tenant_id:
+            token_secret = decoded.get('token_secret')
+            
+            if tenant_id and token_secret:
+                # Look up by both tenant_id and token_secret for uniqueness
                 return AuthToken.objects.select_related('tenant').get(
                     tenant__tenant_id=tenant_id,
+                    token=token_secret,
                     is_active=True
                 )
         except (jwt.InvalidTokenError, jwt.DecodeError):
             pass
         
-        # Fallback to direct token lookup
-        return AuthToken.objects.select_related('tenant').get(
+        # Fallback to direct token lookup (for legacy tokens)
+        return AuthToken.objects.select_related('tenant').filter(
             token=bearer_token,
             is_active=True
-        )
+        ).first()  # Use first() to avoid MultipleObjectsReturned
+        
     except AuthToken.DoesNotExist:
+        return None
+    except AuthToken.MultipleObjectsReturned:
+        # If multiple tokens exist, return None for security
+        logger.warning(f"Multiple tokens found for bearer token, rejecting for security")
         return None
 
 
