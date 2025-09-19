@@ -13,6 +13,12 @@ SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-this')
 # Heroku provides the PORT environment variable
 ALLOWED_HOSTS = ['*']  # Heroku handles routing
 
+# CSRF and CORS settings for Heroku
+CSRF_TRUSTED_ORIGINS = [
+    'https://mcp-server-production-5c5d51311224.herokuapp.com',
+    'https://*.herokuapp.com',
+]
+
 # Database configuration for Heroku PostgreSQL
 DATABASES = {
     'default': dj_database_url.config(
