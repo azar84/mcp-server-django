@@ -85,8 +85,14 @@ class OpenAIMCPTransport(View):
                     }
                 }, status=401)
             
-            # Extract token (remove "Bearer " prefix)
-            bearer_token = auth_header[7:]
+            # Extract token (remove "Bearer " prefix, handle double "Bearer Bearer" case)
+            bearer_token = auth_header[7:]  # Remove "Bearer "
+            
+            # Handle case where OpenAI sends "Bearer Bearer <token>"
+            if bearer_token.startswith('Bearer '):
+                bearer_token = bearer_token[7:]  # Remove second "Bearer "
+            
+            logger.info(f"Extracted bearer token: {bearer_token[:50]}...")
             
             # Get tenant from token (since X-Tenant-ID won't be forwarded)
             auth_token = extract_tenant_from_token(bearer_token)
