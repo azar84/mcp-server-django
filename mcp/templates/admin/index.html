@@ -1,0 +1,144 @@
+{% extends "admin/index.html" %}
+{% load i18n static %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        .dashboard-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            margin: 20px 0;
+            padding: 20px;
+        }
+        .dashboard-section h2 {
+            color: #495057;
+            font-size: 1.4em;
+            margin-bottom: 15px;
+            border-bottom: 2px solid #007cba;
+            padding-bottom: 8px;
+        }
+        .dashboard-section .module {
+            background: white;
+            border: 1px solid #e9ecef;
+            border-radius: 6px;
+            margin: 10px 0;
+            padding: 15px;
+        }
+        .dashboard-section .module h3 {
+            margin-top: 0;
+            color: #343a40;
+        }
+        .credential-section {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+        }
+        .credential-section h2 {
+            color: #856404;
+            border-bottom-color: #f39c12;
+        }
+        .monitoring-section {
+            background: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        .monitoring-section h2 {
+            color: #0c5460;
+            border-bottom-color: #17a2b8;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+    <div class="dashboard-section">
+        <h2>🏢 Core Management</h2>
+        <div class="module">
+            <h3>Tenant Management</h3>
+            <p>Manage your MCP tenants, authentication tokens, and access control.</p>
+            {% for app in app_list %}
+                {% if app.name == "Core Management" %}
+                    {% for model in app.models %}
+                        <tr class="model-{{ model.object_name|lower }}">
+                            {% if model.admin_url %}
+                                <th scope="row"><a href="{{ model.admin_url }}">{{ model.name }}</a></th>
+                            {% else %}
+                                <th scope="row">{{ model.name }}</th>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="dashboard-section credential-section">
+        <h2>🔐 Tool Credentials</h2>
+        <div class="module">
+            <h3>Provider Credentials</h3>
+            <p>Manage encrypted credentials for different service providers per tenant.</p>
+            <ul>
+                <li><strong>MS Bookings:</strong> Azure tenant ID, client ID, and client secret</li>
+                <li><strong>Stripe:</strong> Secret key, publishable key, and webhook secrets</li>
+                <li><strong>Calendly:</strong> API tokens for calendar access</li>
+                <li><strong>Google Calendar:</strong> OAuth credentials and tokens</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="dashboard-section monitoring-section">
+        <h2>📊 Monitoring & Analytics</h2>
+        <div class="module">
+            <h3>Usage Tracking</h3>
+            <p>Monitor MCP sessions, tool usage, and system performance.</p>
+            <ul>
+                <li><strong>Sessions:</strong> Active WebSocket connections</li>
+                <li><strong>Tool Calls:</strong> Execution logs and performance metrics</li>
+                <li><strong>Tools:</strong> Available tool definitions and requirements</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Standard Django admin app list -->
+    {% if app_list %}
+        <div style="margin-top: 40px;">
+            <h2>📋 All Models</h2>
+            {% for app in app_list %}
+                <div class="app-{{ app.app_label }} module">
+                    <table>
+                        <caption>
+                            <a href="{{ app.app_url }}" class="section" title="{% blocktranslate with name=app.name %}Models in the {{ name }} application{% endblocktranslate %}">{{ app.name }}</a>
+                        </caption>
+                        {% for model in app.models %}
+                            <tr class="model-{{ model.object_name|lower }}">
+                                {% if model.admin_url %}
+                                    <th scope="row"><a href="{{ model.admin_url }}">{{ model.name }}</a></th>
+                                {% else %}
+                                    <th scope="row">{{ model.name }}</th>
+                                {% endif %}
+
+                                {% if model.add_url %}
+                                    <td><a href="{{ model.add_url }}" class="addlink">{% translate 'Add' %}</a></td>
+                                {% else %}
+                                    <td>&nbsp;</td>
+                                {% endif %}
+
+                                {% if model.admin_url %}
+                                    {% if model.view_only %}
+                                        <td><a href="{{ model.admin_url }}" class="viewlink">{% translate 'View' %}</a></td>
+                                    {% else %}
+                                        <td><a href="{{ model.admin_url }}" class="changelink">{% translate 'Change' %}</a></td>
+                                    {% endif %}
+                                {% else %}
+                                    <td>&nbsp;</td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                    </table>
+                </div>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p>{% translate "You don't have permission to view or edit anything." %}</p>
+    {% endif %}
+</div>
+{% endblock %}

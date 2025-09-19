@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MCP Server Documentation</title>
+    <style>
+        body {
+            font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #fafafa;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            color: #1f2937;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            padding: 3rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        h1 {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            font-size: 3rem;
+            text-align: center;
+            color: #111827;
+        }
+        .subtitle {
+            color: #6b7280;
+            font-size: 1.25rem;
+            margin-bottom: 3rem;
+            text-align: center;
+            font-weight: 400;
+        }
+        .section {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 2rem;
+            margin: 2rem 0;
+            border: 1px solid #e5e7eb;
+        }
+        .section h2 {
+            margin-top: 0;
+            color: #111827;
+            font-size: 1.875rem;
+            font-weight: 600;
+            border-bottom: 2px solid #e5e7eb;
+            padding-bottom: 0.75rem;
+        }
+        .endpoint {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            background: white;
+            border-radius: 6px;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+        .endpoint:hover {
+            border-color: #d1d5db;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .method {
+            background: #374151;
+            color: white;
+            padding: 0.375rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            font-weight: 600;
+            min-width: 60px;
+            text-align: center;
+        }
+        .method.get { background: #059669; }
+        .method.post { background: #d97706; }
+        .method.ws { background: #7c3aed; }
+        .tool-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+        }
+        .tool-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+        }
+        .tool-card:hover {
+            border-color: #d1d5db;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .tool-card h4 {
+            margin: 0 0 0.75rem 0;
+            color: #111827;
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+        .tool-card p {
+            color: #6b7280;
+            margin-bottom: 1rem;
+        }
+        .tool-card .scope {
+            background: #f3f4f6;
+            color: #374151;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin: 0.25rem 0.25rem 0.25rem 0;
+            display: inline-block;
+            border: 1px solid #d1d5db;
+        }
+        .code-block {
+            background: #1f2937;
+            color: #f9fafb;
+            border: 1px solid #374151;
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+            font-size: 0.875rem;
+            overflow-x: auto;
+        }
+        .step {
+            background: #f9fafb;
+            border-left: 4px solid #6b7280;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            border-radius: 0 6px 6px 0;
+        }
+        .step h4 {
+            margin: 0 0 0.75rem 0;
+            color: #111827;
+            font-weight: 600;
+        }
+        .auth-info {
+            background: #fef3c7;
+            border: 1px solid #fcd34d;
+            border-radius: 6px;
+            padding: 1rem;
+            margin: 1rem 0;
+        }
+        .auth-info strong {
+            color: #92400e;
+        }
+        .auth-info code {
+            background: #fffbeb;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.875rem;
+            border: 1px solid #fcd34d;
+        }
+        .nav {
+            display: flex;
+            justify-content: center;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        .nav a {
+            color: #6b7280;
+            text-decoration: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 6px;
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            transition: all 0.2s ease;
+            font-weight: 500;
+        }
+        .nav a:hover {
+            background: #f3f4f6;
+            color: #374151;
+            border-color: #d1d5db;
+        }
+        .status-online {
+            color: #059669;
+        }
+        .highlight {
+            background: #f3f4f6;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MCP Server Documentation</h1>
+        <p class="subtitle">Multi-tenant Model Context Protocol Server with Domain-based Tools</p>
+        
+        <div class="nav">
+            <a href="#endpoints">API Endpoints</a>
+            <a href="#tools">Available Tools</a>
+            <a href="#auth">Authentication</a>
+            <a href="#openai">OpenAI Integration</a>
+        </div>
+
+        <div class="section" id="endpoints">
+            <h2>API Endpoints</h2>
+            
+            <div class="endpoint">
+                <span><span class="method post">POST</span> /api/mcp/</span>
+                <span><strong>Main MCP Endpoint</strong> - OpenAI Realtime compatible</span>
+            </div>
+            
+            <div class="endpoint">
+                <span><span class="method get">GET</span> /api/mcp/tools/</span>
+                <span>Get available tools (scope-filtered)</span>
+            </div>
+            
+            <div class="endpoint">
+                <span><span class="method get">GET</span> /api/mcp/capabilities/</span>
+                <span>Server capabilities and info</span>
+            </div>
+            
+            <div class="endpoint">
+                <span><span class="method ws">WS</span> /ws/mcp/</span>
+                <span>WebSocket MCP connection</span>
+            </div>
+        </div>
+
+        <div class="section" id="tools">
+            <h2>Available Tools</h2>
+            
+            <div class="tool-grid">
+                <div class="tool-card">
+                    <h4>general.get_server_status</h4>
+                    <p>Check if the MCP server is working and get basic server information. Use when user asks "is the server working", "test connection", or "server status".</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">none</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>[]</code> (no scopes required)
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>bookings.get_staff_availability</h4>
+                    <p>Get staff availability from Microsoft Bookings for a 7-day window</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">booking</span>
+                        <span class="scope">ms_bookings</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["booking", "ms_bookings"]</code>
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>general.current_time</h4>
+                    <p>Get current server time in ISO, timestamp, or human-readable format</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">basic</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["basic"]</code>
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>general.calculator</h4>
+                    <p>Perform basic mathematical calculations and expressions</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">basic</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["basic"]</code>
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>general.system_info</h4>
+                    <p>Get server system information including platform, memory, and CPU details</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">admin</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["admin"]</code>
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>general.file_operations</h4>
+                    <p>Perform tenant-isolated file operations (read, write, list, exists)</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">files</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["files"]</code>
+                    </p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>general.web_request</h4>
+                    <p>Make HTTP requests with optional tenant-specific credentials</p>
+                    <p><strong>Required Scopes:</strong></p>
+                    <div>
+                        <span class="scope">web</span>
+                    </div>
+                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
+                        Request token with: <code>["web"]</code>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section" id="auth">
+            <h2>Authentication</h2>
+            
+            <div class="step">
+                <h4>Token-based Authentication</h4>
+                <p>All requests require a Bearer token and tenant ID. Contact your administrator for credentials.</p>
+                <div class="code-block">Authorization: Bearer your-token-here
+X-Tenant-ID: your-tenant-id-here</div>
+            </div>
+            
+            <div class="step">
+                <h4>Scope-based Access Control</h4>
+                <p>Tools are filtered based on scopes assigned to your token. Request specific scopes based on the tools you need:</p>
+                <ul>
+                    <li><strong>Basic tools:</strong> <code>["basic"]</code></li>
+                    <li><strong>MS Bookings:</strong> <code>["booking", "ms_bookings"]</code></li>
+                    <li><strong>File operations:</strong> <code>["files"]</code></li>
+                    <li><strong>Web requests:</strong> <code>["web"]</code></li>
+                    <li><strong>System access:</strong> <code>["admin"]</code></li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="section" id="openai">
+            <h2>OpenAI Integration</h2>
+            
+            <h3>Python - Responses API</h3>
+            <div class="code-block">from openai import OpenAI
+
+client = OpenAI(api_key="your-openai-api-key")
+
+response = client.responses.create(
+    model="gpt-4o-realtime-preview",
+    tools=[{
+        "type": "mcp",
+        "server_label": "bookings",
+        "server_url": "https://your-ngrok-url.ngrok-free.app/api/mcp/",
+        "headers": {
+            "Authorization": "Bearer your-token-here",
+            "X-Tenant-ID": "your-tenant-id-here"
+        }
+    }],
+    input="Check staff availability for tomorrow"
+)</div>
+            
+            <h3>Python - Agents SDK</h3>
+            <div class="code-block">agent = client.beta.agents.create(
+    model="gpt-4o",
+    name="Booking Assistant",
+    instructions="You help with booking appointments.",
+    tools=[{
+        "type": "mcp",
+        "server_label": "bookings",
+        "server_url": "https://your-ngrok-url.ngrok-free.app/api/mcp/",
+        "headers": {
+            "Authorization": "Bearer your-token-here",
+            "X-Tenant-ID": "your-tenant-id-here"
+        }
+    }]
+)</div>
+        </div>
+
+        <div class="section" id="testing">
+            <h2>API Testing</h2>
+            
+            <h3>List Available Tools</h3>
+            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/list"}'</div>
+            
+            <h3>Test Server Status (Connection Test)</h3>
+            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "tools/call",
+    "params": {
+      "name": "general.get_server_status",
+      "arguments": {}
+    }
+  }'</div>
+            
+            <h3>Call MS Bookings Tool</h3>
+            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "1",
+    "method": "tools/call",
+    "params": {
+      "name": "bookings.get_staff_availability",
+      "arguments": {
+        "startLocal": "2025-09-20T14:00:00",
+        "timeZone": "Eastern Standard Time"
+      }
+    }
+  }'</div>
+        </div>
+
+        <div class="section" id="scopes">
+            <h2>Scope Reference</h2>
+            
+            <div class="tool-grid">
+                <div class="tool-card">
+                    <h4>Domain Scopes</h4>
+                    <p><span class="scope">booking</span> Booking & scheduling functionality</p>
+                    <p><span class="scope">basic</span> Basic utility operations</p>
+                    <p><span class="scope">admin</span> Administrative system access</p>
+                    <p><span class="scope">files</span> File system operations</p>
+                    <p><span class="scope">web</span> HTTP request capabilities</p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>Provider Scopes</h4>
+                    <p><span class="scope">ms_bookings</span> Microsoft Bookings API</p>
+                    <p><span class="scope">calendly</span> Calendly integration</p>
+                    <p><span class="scope">google_calendar</span> Google Calendar API</p>
+                    <p><span class="scope">stripe</span> Stripe payment processing</p>
+                </div>
+                
+                <div class="tool-card">
+                    <h4>Action Scopes</h4>
+                    <p><span class="scope">write</span> Create and modify operations</p>
+                    <p style="color: #6b7280; font-size: 0.875rem;">
+                        Required for booking appointments, creating records, and data modifications.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Getting Started</h2>
+            
+            <div class="step">
+                <h4>1. Request Access</h4>
+                <p>Contact your administrator to obtain authentication credentials and appropriate scopes for the tools you need.</p>
+            </div>
+            
+            <div class="step">
+                <h4>2. Test Connection</h4>
+                <div class="code-block">curl -X POST /api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/list"}'</div>
+            </div>
+            
+            <div class="step">
+                <h4>3. Integrate with OpenAI</h4>
+                <p>Use the server URL and authentication headers in your OpenAI Realtime or Agents SDK configuration.</p>
+            </div>
+        </div>
+
+        <div style="text-align: center; margin-top: 3rem; padding: 2rem; background: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
+            <p><strong>Server Status:</strong> <span class="status-online">Online</span></p>
+            <p><strong>Protocol Version:</strong> <span class="highlight">MCP 2024-11-05</span></p>
+            <p><strong>Transport:</strong> <span class="highlight">Streamable HTTP</span></p>
+        </div>
+    </div>
+</body>
+</html>
+

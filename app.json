@@ -1,0 +1,39 @@
+{
+  "name": "MCP Server",
+  "description": "Multi-tenant Model Context Protocol Server for OpenAI Realtime integration",
+  "keywords": ["django", "mcp", "openai", "realtime", "api"],
+  "website": "https://github.com/your-username/mcp-server",
+  "repository": "https://github.com/your-username/mcp-server",
+  "logo": "",
+  "success_url": "/",
+  "scripts": {
+    "postdeploy": "python manage.py migrate && python manage.py collectstatic --noinput"
+  },
+  "env": {
+    "SECRET_KEY": {
+      "description": "Django secret key for cryptographic signing",
+      "generator": "secret"
+    },
+    "MCP_ENCRYPTION_KEY": {
+      "description": "Encryption key for MCP credentials storage",
+      "required": true
+    },
+    "DJANGO_SETTINGS_MODULE": {
+      "value": "mcp_server.settings_production"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "addons": [
+    "heroku-postgresql:mini"
+  ],
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}
