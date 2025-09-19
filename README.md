@@ -1,403 +1,282 @@
-# Django MCP Server
+# MCP Server Django
 
-A comprehensive Model Context Protocol (MCP) server implementation using Django, designed to be used by agents on other platforms with enterprise-grade authentication and multi-tenancy.
+A production-ready **Model Context Protocol (MCP) Server** built with Django, designed for seamless integration with OpenAI Realtime API and multi-tenant environments.
 
-## Features
+## 🚀 Features
 
-- **Full MCP Protocol Support**: Implements MCP 2024-11-05 specification
-- **Multi-Tenant Architecture**: Complete tenant isolation with per-tenant credentials
-- **Authentication & Authorization**: Token-based authentication with scope-based access control
-- **WebSocket & HTTP Support**: Real-time WebSocket connections and HTTP RPC endpoints
-- **Built-in Tools**: 7 sample tools with scope-based access control
-- **Credential Management**: Encrypted per-tenant credential storage for tools
-- **Session Management**: Track and manage client sessions with tenant context
-- **Analytics & Monitoring**: Built-in analytics for tool usage and session tracking
-- **Admin API**: Complete REST API for tenant and credential management
-- **Modern UI**: Beautiful web interface for server monitoring
+### Core Capabilities
+- **Multi-tenant Architecture** - Isolated data and configurations per tenant
+- **Token-based Authentication** - Secure Bearer token authentication with scopes
+- **OpenAI Realtime Compatible** - Streamable HTTP transport for OpenAI Agents SDK
+- **Domain-based Tool Organization** - Tools organized by business function (bookings, CRM, payments, email)
+- **Encrypted Credential Storage** - Secure per-tenant credential management
+- **WebSocket & HTTP Support** - Full MCP protocol implementation
 
-## Quick Start
+### Available Tools
+- **General Tools**
+  - `general.get_server_status` - Server health and connection testing
+- **Booking Tools**
+  - `bookings.get_staff_availability` - Microsoft Bookings staff availability
 
-### 1. Installation
+### Supported Integrations
+- **Microsoft Bookings** - Staff availability, appointment scheduling
+- **Extensible Architecture** - Easy to add new providers (Calendly, Google Calendar, etc.)
+
+## 🏗️ Architecture
+
+```
+MCP Server (Django + Channels)
+├── Multi-tenant Authentication
+├── Domain-based Tools
+│   ├── bookings/ (MS Bookings, Calendly, Google Calendar)
+│   ├── crm/ (Salesforce, HubSpot, Pipedrive)
+│   ├── payments/ (Stripe, PayPal)
+│   ├── email/ (SendGrid, Mailgun)
+│   └── general/ (Server utilities)
+├── Encrypted Credentials Storage
+├── MCP Streamable HTTP Transport
+└── Admin Panel Management
+```
+
+## 🚀 Quick Start
+
+### 1. Local Development
 
 ```bash
-# Clone or create the project directory
-cd "MCP Server"
+# Clone the repository
+git clone https://github.com/azar84/mcp-server-django.git
+cd mcp-server-django
 
-# Install Python dependencies
+# Install dependencies
 pip install -r requirements.txt
 
-# Run Django migrations
-python3 manage.py makemigrations
-python3 manage.py migrate
+# Run migrations
+python manage.py migrate
 
-# Create superuser (optional)
-python3 manage.py createsuperuser
+# Create superuser
+python manage.py createsuperuser
+
+# Start development server
+python manage.py runserver
 ```
 
-### 2. No External Dependencies Required
+### 2. Heroku Deployment
 
-The server uses in-memory channels, so no Redis or other external services are required for basic functionality.
+[![Deploy](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/azar84/mcp-server-django)
 
-### 3. Run the Server
+Or manually:
 
 ```bash
-# Start the Django development server
-python3 manage.py runserver 0.0.0.0:8000
+# Create Heroku app
+heroku create your-mcp-server
+
+# Set environment variables
+heroku config:set DJANGO_SETTINGS_MODULE="mcp_server.settings_production"
+heroku config:set MCP_ENCRYPTION_KEY="$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+
+# Add PostgreSQL
+heroku addons:create heroku-postgresql:essential-0
+
+# Deploy
+git push heroku main
+
+# Run migrations
+heroku run python manage.py migrate
 ```
 
-The server will be available at:
-- **Web Interface**: http://localhost:8000
-- **WebSocket**: ws://localhost:8000/ws/mcp/
-- **API Endpoints**: http://localhost:8000/api/mcp/
-
-## Authentication & Multi-Tenancy
-
-### Tenant Management
-
-1. **Create a Tenant**:
-```bash
-curl -X POST http://localhost:8000/api/admin/tenants/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "My Company",
-    "description": "Company tenant for MCP access"
-  }'
-```
-
-2. **Create Authentication Token**:
-```bash
-curl -X POST http://localhost:8000/api/admin/tokens/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "your-tenant-id",
-    "scopes": ["basic", "files", "web", "api"],
-    "expires_in_days": 30
-  }'
-```
-
-3. **Store Credentials for Tools**:
-```bash
-curl -X POST http://localhost:8000/api/admin/credentials/ \
-  -H "Content-Type: application/json" \
-  -d '{
-    "tenant_id": "your-tenant-id",
-    "tool_name": "secure_api",
-    "credential_key": "api_key",
-    "credential_value": "your-api-key"
-  }'
-```
-
-## MCP Client Connection
-
-### WebSocket Connection (Authenticated)
-
-Connect to the MCP server via WebSocket with authentication:
-
-```javascript
-const token = 'your-auth-token';
-const tenantId = 'your-tenant-id';
-const ws = new WebSocket(`ws://localhost:8000/ws/mcp/?token=${token}&tenant_id=${tenantId}`);
-
-// Initialize MCP session
-const initMessage = {
-    jsonrpc: "2.0",
-    id: "1",
-    method: "initialize",
-    params: {
-        protocolVersion: "2024-11-05",
-        clientInfo: {
-            name: "My MCP Client",
-            version: "1.0.0"
-        }
-    }
-};
-
-ws.send(JSON.stringify(initMessage));
-```
-
-### HTTP RPC (Authenticated)
-
-Make MCP calls via HTTP with authentication:
-
-```bash
-curl -X POST http://localhost:8000/api/mcp/rpc/ \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-auth-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
-  -d '{
-    "jsonrpc": "2.0",
-    "id": "1",
-    "method": "tools/list"
-  }'
-```
-
-## Available Tools & Scopes
-
-The server comes with 7 built-in tools with scope-based access control:
-
-### Scope System
-- **No scope required**: Basic tools available to all authenticated users
-- **basic**: Standard functionality (time, calculator)
-- **files**: File system operations (tenant-isolated)
-- **web**: HTTP request capabilities
-- **admin**: Administrative access (system information)
-- **api**: Secure API access with tenant credentials
-
-### 1. Echo Tool (No scope required)
-```json
-{
-  "name": "echo",
-  "description": "Echo back a message",
-  "arguments": {
-    "message": "Hello, MCP!"
-  }
-}
-```
-
-### 2. Current Time Tool (Scope: basic)
-```json
-{
-  "name": "current_time",
-  "description": "Get the current server time",
-  "arguments": {
-    "format": "iso"  // "iso", "timestamp", or "human"
-  }
-}
-```
-
-### 3. System Info Tool (Scope: admin)
-```json
-{
-  "name": "system_info",
-  "description": "Get basic system information",
-  "arguments": {}
-}
-```
-
-### 4. File Operations Tool (Scope: files)
-```json
-{
-  "name": "file_operations",
-  "description": "Perform tenant-isolated file operations",
-  "arguments": {
-    "operation": "read",  // "read", "write", "list", "exists"
-    "path": "test.txt",   // Automatically scoped to tenant directory
-    "content": "File content"  // for write operation
-  }
-}
-```
-
-### 5. Web Request Tool (Scope: web)
-```json
-{
-  "name": "web_request",
-  "description": "Make HTTP requests with optional tenant credentials",
-  "arguments": {
-    "url": "https://api.github.com/users/octocat",
-    "method": "GET",
-    "headers": {},
-    "data": {}
-  }
-}
-```
-
-### 6. Calculator Tool (Scope: basic)
-```json
-{
-  "name": "calculator",
-  "description": "Perform basic mathematical calculations",
-  "arguments": {
-    "expression": "2 + 2 * 3"
-  }
-}
-```
-
-### 7. Secure API Tool (Scope: api, Requires credentials)
-```json
-{
-  "name": "secure_api",
-  "description": "Call secure API endpoints using tenant credentials",
-  "arguments": {
-    "endpoint": "user_profile"
-  }
-}
-```
-
-## API Endpoints
-
-### MCP Protocol Endpoints
-```bash
-GET /api/mcp/info/           # Server information and capabilities
-GET /api/mcp/sessions/       # Active MCP sessions
-GET /api/mcp/tools/          # Available tools (scope-filtered)
-GET /api/mcp/analytics/      # Server analytics and usage statistics
-POST /api/mcp/rpc/           # MCP RPC calls via HTTP (authenticated)
-```
-
-### Tenant Management Endpoints
-```bash
-GET /api/admin/tenants/      # List all tenants
-POST /api/admin/tenants/     # Create new tenant
-```
-
-### Token Management Endpoints
-```bash
-GET /api/admin/tokens/       # List all authentication tokens
-POST /api/admin/tokens/      # Create new authentication token
-DELETE /api/admin/tokens/<id>/ # Deactivate token
-```
-
-### Credential Management Endpoints
-```bash
-GET /api/admin/credentials/  # List credentials for tenant
-POST /api/admin/credentials/ # Store credential for tenant/tool
-DELETE /api/admin/credentials/<id>/ # Deactivate credential
-```
-
-### Admin Endpoints
-```bash
-GET /api/admin/scopes/       # List available scopes and descriptions
-GET /api/admin/dashboard/<tenant_id>/ # Tenant dashboard with analytics
-```
-
-## Example MCP Workflow
-
-1. **Initialize Connection**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "1",
-  "method": "initialize",
-  "params": {
-    "protocolVersion": "2024-11-05",
-    "clientInfo": {
-      "name": "My Agent",
-      "version": "1.0.0"
-    }
-  }
-}
-```
-
-2. **List Available Tools**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "2",
-  "method": "tools/list"
-}
-```
-
-3. **Call a Tool**:
-```json
-{
-  "jsonrpc": "2.0",
-  "id": "3",
-  "method": "tools/call",
-  "params": {
-    "name": "echo",
-    "arguments": {
-      "message": "Hello from my agent!"
-    }
-  }
-}
-```
-
-## Adding Custom Tools
-
-To add custom tools, edit `mcp/tools.py`:
-
-```python
-async def my_custom_tool(arguments: Dict[str, Any], session_id: str) -> str:
-    """Your custom tool implementation"""
-    # Your logic here
-    return "Tool result"
-
-# Register the tool
-protocol_handler.register_tool(
-    name="my_tool",
-    description="Description of what the tool does",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "param1": {
-                "type": "string",
-                "description": "Parameter description"
-            }
-        },
-        "required": ["param1"]
-    },
-    handler=my_custom_tool
-)
-```
-
-## Configuration
+## 🔧 Configuration
 
 ### Environment Variables
 
-Create a `.env` file for production settings:
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SECRET_KEY` | Django secret key | Yes |
+| `MCP_ENCRYPTION_KEY` | Fernet key for credential encryption | Yes |
+| `DATABASE_URL` | PostgreSQL connection string | Yes (Heroku) |
+| `DJANGO_SETTINGS_MODULE` | Settings module | Yes (Production) |
 
-```env
-DEBUG=False
-SECRET_KEY=your-secret-key-here
-ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.com
-MCP_ENCRYPTION_KEY=your-encryption-key-here
+### Settings Files
+
+- `settings.py` - Development settings
+- `settings_production.py` - Production settings for Heroku
+
+## 🔐 Authentication
+
+### 1. Create Tenant
+```bash
+curl -X POST https://your-server.herokuapp.com/api/admin/tenants/ \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Your Company", "description": "Main tenant"}'
 ```
 
-### Production Deployment
+### 2. Generate Token
+```bash
+curl -X POST https://your-server.herokuapp.com/api/admin/tokens/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "tenant_id": "your-tenant-id",
+    "scopes": ["booking", "ms_bookings"],
+    "expires_in_days": 365
+  }'
+```
 
-For production deployment:
+### 3. Use with OpenAI Realtime
 
-1. Set `DEBUG=False` in settings
-2. Configure proper `SECRET_KEY`
-3. Set up proper database (PostgreSQL recommended)
-4. Set `MCP_ENCRYPTION_KEY` for credential encryption
-5. Use a proper ASGI server like Uvicorn or Daphne
+```python
+from openai import OpenAI
+
+client = OpenAI(api_key="your-openai-api-key")
+
+response = client.responses.create(
+    model="gpt-4o-realtime-preview",
+    tools=[{
+        "type": "mcp",
+        "server_label": "bookings",
+        "server_url": "https://your-server.herokuapp.com/api/mcp/",
+        "headers": {
+            "Authorization": "Bearer your-mcp-token",
+            "X-Tenant-ID": "your-tenant-id"
+        }
+    }],
+    input="Check server status and get staff availability"
+)
+```
+
+## 📚 API Endpoints
+
+### MCP Protocol
+- `POST /api/mcp/` - Main MCP Streamable HTTP endpoint
+- `GET /api/mcp/capabilities/` - Server capabilities
+- `GET /api/mcp/tools/` - Available tools list
+
+### Administration
+- `POST /api/admin/tenants/` - Tenant management
+- `POST /api/admin/tokens/` - Token generation
+- `POST /api/admin/credentials/` - Credential management
+
+### WebSocket
+- `ws://localhost:8000/ws/mcp/` - MCP WebSocket endpoint
+
+## 🛠️ Adding New Tools
+
+### 1. Create Provider
+
+```python
+# mcp/domains/your_domain/your_provider.py
+from ..base import BaseProvider, BaseTool, ProviderType
+
+class YourProvider(BaseProvider):
+    def __init__(self):
+        super().__init__(
+            name="your_provider",
+            provider_type=ProviderType.YOUR_DOMAIN,
+            config={}
+        )
+    
+    def get_tools(self):
+        return [{
+            'name': 'your_tool',
+            'tool_class': YourTool,
+            'description': 'Your tool description',
+            'input_schema': {...},
+            'required_scopes': ['your_scope']
+        }]
+```
+
+### 2. Register in Domain Registry
+
+```python
+# mcp/domain_registry.py
+def _initialize_domains(self):
+    # Add your domain
+    your_domain = DomainManager("your_domain")
+    your_domain.register_provider(YourProvider())
+    self.domains["your_domain"] = your_domain
+```
+
+## 🏥 Health Monitoring
+
+Check server status:
+```bash
+curl -X POST https://your-server.herokuapp.com/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general.get_server_status","arguments":{}}}'
+```
+
+## 📊 Admin Panel
+
+Access the Django admin panel at `/admin/` to manage:
+- **Tenants** - Multi-tenant organizations
+- **Auth Tokens** - API authentication tokens
+- **Tool Credentials** - Encrypted third-party service credentials
+- **Sessions** - Active MCP sessions
+- **Analytics** - Usage monitoring
+
+## 🔒 Security Features
+
+- **HTTPS Enforcement** - All production traffic encrypted
+- **CSRF Protection** - Cross-site request forgery prevention
+- **Token Scoping** - Granular permission control
+- **Credential Encryption** - Fernet encryption for sensitive data
+- **Origin Validation** - Trusted origins for admin panel
+
+## 🧪 Testing
 
 ```bash
-# Install production server
-pip install uvicorn[standard]
+# Run tests
+python manage.py test
 
-# Run with Uvicorn
-uvicorn mcp_server.asgi:application --host 0.0.0.0 --port 8000
+# Test MCP endpoint
+python example_client.py
+
+# Test with authentication
+python authenticated_client_example.py
 ```
 
-## Architecture
+## 📈 Scaling
 
-```
-├── mcp_server/          # Django project settings
-│   ├── settings.py      # Django configuration
-│   ├── urls.py          # Main URL routing
-│   └── asgi.py          # ASGI configuration
-├── mcp/                 # MCP application
-│   ├── models.py        # Database models
-│   ├── protocol.py      # MCP protocol implementation
-│   ├── consumers.py     # WebSocket consumers
-│   ├── views.py         # REST API views
-│   ├── tools.py         # Tool implementations
-│   ├── urls.py          # App URL routing
-│   └── templates/       # HTML templates
-└── requirements.txt     # Python dependencies
-```
+### Horizontal Scaling
+- Use Redis for channel layers: `pip install channels-redis`
+- Configure Redis in `CHANNEL_LAYERS` settings
+- Deploy multiple Heroku dynos
 
-## Security Notes
+### Database Optimization
+- Use PostgreSQL connection pooling
+- Implement database read replicas for heavy read workloads
+- Add database indexes for frequently queried fields
 
-- File operations are restricted to `/tmp/mcp_files/` directory
-- Calculator tool only allows basic math operations
-- Web requests have a 10-second timeout
-- All tool calls are logged for audit purposes
+## 🤝 Contributing
 
-## Troubleshooting
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit changes: `git commit -am 'Add your feature'`
+4. Push to branch: `git push origin feature/your-feature`
+5. Submit a Pull Request
 
-### WebSocket Connection Issues
-- Check firewall settings
-- Verify ALLOWED_HOSTS in settings.py
-- Ensure authentication token and tenant_id are provided
+## 📝 License
 
-### Tool Execution Errors
-- Check server logs for detailed error messages
-- Verify tool arguments match the schema
-- Ensure proper permissions for file operations
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## License
+## 🆘 Support
 
-This project is provided as-is for educational and development purposes.
+- **Documentation**: [Full deployment guide](DEPLOY.md)
+- **Issues**: [GitHub Issues](https://github.com/azar84/mcp-server-django/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/azar84/mcp-server-django/discussions)
+
+## 🎯 Roadmap
+
+- [ ] Additional booking providers (Calendly, Acuity)
+- [ ] CRM integrations (Salesforce, HubSpot)
+- [ ] Payment processing (Stripe, PayPal)
+- [ ] Email marketing (SendGrid, Mailgun)
+- [ ] Advanced analytics and monitoring
+- [ ] Rate limiting and quotas
+- [ ] Webhook support for real-time updates
+
+---
+
+**Built with ❤️ for the OpenAI ecosystem**
+
+[![Deploy to Heroku](https://www.herokucdn.com/deploy/button.svg)](https://heroku.com/deploy?template=https://github.com/azar84/mcp-server-django)

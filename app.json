@@ -1,9 +1,9 @@
 {
-  "name": "MCP Server",
-  "description": "Multi-tenant Model Context Protocol Server for OpenAI Realtime integration",
-  "keywords": ["django", "mcp", "openai", "realtime", "api"],
-  "website": "https://github.com/your-username/mcp-server",
-  "repository": "https://github.com/your-username/mcp-server",
+  "name": "MCP Server Django",
+  "description": "Multi-tenant Model Context Protocol Server for OpenAI Realtime integration with MS Bookings, authentication, and domain-based tool organization",
+  "keywords": ["django", "mcp", "openai", "realtime", "api", "bookings", "multi-tenant"],
+  "website": "https://github.com/azar84/mcp-server-django",
+  "repository": "https://github.com/azar84/mcp-server-django",
   "logo": "",
   "success_url": "/",
   "scripts": {
