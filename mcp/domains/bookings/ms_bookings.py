@@ -150,10 +150,11 @@ class MSBookingsProvider(BaseProvider):
         """Get access token using tenant's MS Bookings credentials"""
         from ...models import MSBookingsCredential
         from ...auth import mcp_authenticator
+        from asgiref.sync import sync_to_async
         
         try:
-            # Get MS Bookings credentials for this tenant
-            ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+            # Get MS Bookings credentials for this tenant (async database access)
+            ms_cred = await sync_to_async(MSBookingsCredential.objects.get)(tenant=tenant, is_active=True)
         except MSBookingsCredential.DoesNotExist:
             raise Exception('MS Bookings credentials not configured for this tenant')
         
@@ -162,7 +163,7 @@ class MSBookingsProvider(BaseProvider):
             ms_cred.client_secret.encode()
         ).decode()
         
-        import requests
+        import httpx
         
         token_url = f"https://login.microsoftonline.com/{ms_cred.azure_tenant_id}/oauth2/v2.0/token"
         token_data = {
@@ -172,17 +173,18 @@ class MSBookingsProvider(BaseProvider):
             'scope': 'https://graph.microsoft.com/.default'
         }
         
-        token_response = requests.post(token_url, data=token_data, timeout=10)
-        if token_response.status_code != 200:
-            raise Exception(f'Failed to get access token: {token_response.text}')
-        
-        token_result = token_response.json()
-        access_token = token_result.get('access_token')
-        
-        if not access_token:
-            raise Exception('No access token returned')
-        
-        return access_token
+        async with httpx.AsyncClient() as client:
+            token_response = await client.post(token_url, data=token_data, timeout=10)
+            if token_response.status_code != 200:
+                raise Exception(f'Failed to get access token: {token_response.text}')
+            
+            token_result = token_response.json()
+            access_token = token_result.get('access_token')
+            
+            if not access_token:
+                raise Exception('No access token returned')
+            
+            return access_token
 
 
 class MSGetStaffAvailabilityTool(BaseTool):
@@ -251,7 +253,8 @@ class MSGetStaffAvailabilityTool(BaseTool):
             
             # Get MS Bookings credentials for business ID and staff IDs
             from ...models import MSBookingsCredential
-            ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+            from asgiref.sync import sync_to_async
+            ms_cred = await sync_to_async(MSBookingsCredential.objects.get)(tenant=tenant, is_active=True)
             
         except Exception as e:
             return {
@@ -294,7 +297,7 @@ class MSGetStaffAvailabilityTool(BaseTool):
             }
         
         try:
-            import requests
+            import httpx
             
             # Prepare payload for MS Bookings getStaffAvailability API
             payload = {
@@ -310,15 +313,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
             }
             
             # Call MS Bookings getStaffAvailability API
-            response = requests.post(
-                f"{self.provider.config['api_base']}/solutions/bookingBusinesses/{business_id}/getStaffAvailability",
-                headers={
-                    'Authorization': f'Bearer {access_token}',
-                    'Content-Type': 'application/json'
-                },
-                json=payload,
-                timeout=30
-            )
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.provider.config['api_base']}/solutions/bookingBusinesses/{business_id}/getStaffAvailability",
+                    headers={
+                        'Authorization': f'Bearer {access_token}',
+                        'Content-Type': 'application/json'
+                    },
+                    json=payload,
+                    timeout=30
+                )
             
             # Return response in the same format as your JavaScript tool
             if response.status_code == 200:
@@ -374,20 +378,21 @@ class MSBookSlotTool(BaseTool):
         notes = arguments.get('notes', '')
         
         try:
-            import requests
+            import httpx
             from datetime import datetime, timedelta
             
-            # Get service duration
-            service_response = requests.get(
-                f"{self.provider.config['api_base']}/bookingBusinesses/{business_id}/services/{service_id}",
-                headers={'Authorization': f'Bearer {access_token}'},
-                timeout=10
-            )
-            
-            if service_response.status_code != 200:
-                return {'error': f'Failed to get service details: {service_response.text}'}
-            
-            service_data = service_response.json()
+            async with httpx.AsyncClient() as client:
+                # Get service duration
+                service_response = await client.get(
+                    f"{self.provider.config['api_base']}/bookingBusinesses/{business_id}/services/{service_id}",
+                    headers={'Authorization': f'Bearer {access_token}'},
+                    timeout=10
+                )
+                
+                if service_response.status_code != 200:
+                    return {'error': f'Failed to get service details: {service_response.text}'}
+                
+                service_data = service_response.json()
             
             # Calculate end time based on service duration
             start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
@@ -417,7 +422,7 @@ class MSBookSlotTool(BaseTool):
                 'customerNotes': notes
             }
             
-            response = requests.post(
+            response = await client.post(
                 f"{self.provider.config['api_base']}/bookingBusinesses/{business_id}/appointments",
                 headers={
                     'Authorization': f'Bearer {access_token}',
