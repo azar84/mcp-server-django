@@ -16,7 +16,7 @@ A production-ready **Model Context Protocol (MCP) Server** built with Django, de
 - **General Tools**
   - `general_get_server_status` - Server health and connection testing
 - **Booking Tools**
-  - `bookings.get_staff_availability` - Microsoft Bookings staff availability
+  - `bookings_get_staff_availability` - Microsoft Bookings staff availability
 
 ### Supported Integrations
 - **Microsoft Bookings** - Staff availability, appointment scheduling

@@ -72,7 +72,7 @@ def register_default_tools():
     
     # MS Bookings tool - domain-based tool
     protocol_handler.register_tool(
-        name="bookings.get_staff_availability",
+        name="bookings_get_staff_availability",
         description="Get staff availability from Microsoft Bookings for a 7-day window",
         input_schema={
             "type": "object",

@@ -33,8 +33,8 @@ mcp/
 **Providers**: Calendly, Google Calendar, Microsoft Bookings
 
 **Tools**:
-- `bookings.get_staff_availability` - Get available time slots
-- `bookings.book_slot` - Book appointment/meeting
+- `bookings_get_staff_availability` - Get available time slots
+- `bookings_book_slot` - Book appointment/meeting
 
 **Scopes**: `booking`, `[provider_name]`, `write` (for booking)
 
@@ -42,8 +42,8 @@ mcp/
 **Providers**: Salesforce, HubSpot, Pipedrive
 
 **Tools**:
-- `crm.lookup_customer` - Search for customer information
-- `crm.create_lead` - Create new lead/contact
+- `crm_lookup_customer` - Search for customer information
+- `crm_create_lead` - Create new lead/contact
 
 **Scopes**: `crm`, `[provider_name]`, `write` (for creation)
 
@@ -51,8 +51,8 @@ mcp/
 **Providers**: Stripe, PayPal
 
 **Tools**:
-- `payments.create_invoice` - Generate invoices
-- `payments.get_payment_status` - Check payment status
+- `payments_create_invoice` - Generate invoices
+- `payments_get_payment_status` - Check payment status
 
 **Scopes**: `payments`, `[provider_name]`, `write` (for creation)
 
@@ -60,8 +60,8 @@ mcp/
 **Providers**: SendGrid, Mailgun
 
 **Tools**:
-- `email.send_email` - Send emails
-- `email.get_delivery_stats` - Get email statistics
+- `email_send_email` - Send emails
+- `email_get_delivery_stats` - Get email statistics
 
 **Scopes**: `email`, `[provider_name]`, `write` (for sending)
 
@@ -102,13 +102,13 @@ Credentials are stored per-tenant with format:
 
 ### Tool Naming Convention
 ```
-{domain}.{tool_name}
+{domain}_{tool_name}
 ```
 
 Examples:
-- `bookings.get_staff_availability`
-- `crm.lookup_customer` 
-- `payments.create_invoice`
+- `bookings_get_staff_availability`
+- `crm_lookup_customer` 
+- `payments_create_invoice`
 
 ### Scope-based Access
 ```python

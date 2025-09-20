@@ -74,7 +74,7 @@ class MCPDomainRegistry:
         return all_tools
     
     def get_tool_by_name(self, tool_name: str):
-        """Get a specific tool by its full name (domain.tool_name)"""
+        """Get a specific tool by its full name (domain_tool_name)"""
         for domain_manager in self.domains.values():
             if tool_name in domain_manager.tools:
                 return domain_manager.tools[tool_name]
