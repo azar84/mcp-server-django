@@ -145,6 +145,30 @@ class MSBookingsCredential(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
+    def save(self, *args, **kwargs):
+        """Override save to encrypt client_secret if it's being set"""
+        if self.client_secret and not self._is_encrypted(self.client_secret):
+            from .auth import mcp_authenticator
+            # Encrypt the client secret before saving
+            self.client_secret = mcp_authenticator.cipher_suite.encrypt(
+                self.client_secret.encode()
+            ).decode()
+        super().save(*args, **kwargs)
+    
+    def _is_encrypted(self, value):
+        """Check if a value is already encrypted (starts with gAAAAAB)"""
+        return value.startswith('gAAAAAB')
+    
+    def get_client_secret(self):
+        """Get the decrypted client secret"""
+        from .auth import mcp_authenticator
+        try:
+            return mcp_authenticator.cipher_suite.decrypt(
+                self.client_secret.encode()
+            ).decode()
+        except Exception:
+            return self.client_secret  # Return as-is if decryption fails
+    
     class Meta:
         verbose_name = "MS Bookings Credential"
         verbose_name_plural = "MS Bookings Credentials"

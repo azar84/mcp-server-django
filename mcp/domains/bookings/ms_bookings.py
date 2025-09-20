@@ -152,16 +152,20 @@ class MSBookingsProvider(BaseProvider):
         from ...auth import mcp_authenticator
         from asgiref.sync import sync_to_async
         
+        if not tenant:
+            raise Exception('No tenant provided')
+        
         try:
             # Get MS Bookings credentials for this tenant (async database access)
             ms_cred = await sync_to_async(MSBookingsCredential.objects.get)(tenant=tenant, is_active=True)
         except MSBookingsCredential.DoesNotExist:
-            raise Exception('MS Bookings credentials not configured for this tenant')
+            raise Exception(f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})')
         
-        # Decrypt the client secret
-        client_secret = mcp_authenticator.cipher_suite.decrypt(
-            ms_cred.client_secret.encode()
-        ).decode()
+        if not ms_cred.azure_tenant_id or not ms_cred.client_id or not ms_cred.client_secret:
+            raise Exception(f'MS Bookings credentials incomplete for tenant: {tenant.name}. Missing: azure_tenant_id, client_id, or client_secret')
+        
+        # Get the decrypted client secret using the model method
+        client_secret = ms_cred.get_client_secret()
         
         import httpx
         
@@ -173,18 +177,24 @@ class MSBookingsProvider(BaseProvider):
             'scope': 'https://graph.microsoft.com/.default'
         }
         
-        async with httpx.AsyncClient() as client:
-            token_response = await client.post(token_url, data=token_data, timeout=10)
-            if token_response.status_code != 200:
-                raise Exception(f'Failed to get access token: {token_response.text}')
-            
-            token_result = token_response.json()
-            access_token = token_result.get('access_token')
-            
-            if not access_token:
-                raise Exception('No access token returned')
-            
-            return access_token
+        try:
+            async with httpx.AsyncClient() as client:
+                token_response = await client.post(token_url, data=token_data, timeout=10)
+                if token_response.status_code != 200:
+                    error_details = token_response.text
+                    raise Exception(f'Azure token request failed (HTTP {token_response.status_code}): {error_details}')
+                
+                token_result = token_response.json()
+                access_token = token_result.get('access_token')
+                
+                if not access_token:
+                    raise Exception(f'No access token in response: {token_result}')
+                
+                return access_token
+        except httpx.TimeoutException:
+            raise Exception('Timeout connecting to Microsoft Azure token endpoint')
+        except httpx.RequestError as e:
+            raise Exception(f'Network error connecting to Azure: {str(e)}')
 
 
 class MSGetStaffAvailabilityTool(BaseTool):
@@ -249,6 +259,9 @@ class MSGetStaffAvailabilityTool(BaseTool):
         try:
             # Get access token and tenant credentials
             tenant = context.get('tenant')
+            if not tenant:
+                raise Exception('No tenant found in context')
+            
             access_token = await self.provider.get_access_token(tenant)
             
             # Get MS Bookings credentials for business ID and staff IDs
@@ -257,11 +270,15 @@ class MSGetStaffAvailabilityTool(BaseTool):
             ms_cred = await sync_to_async(MSBookingsCredential.objects.get)(tenant=tenant, is_active=True)
             
         except Exception as e:
+            error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
             return {
                 'error': True,
-                'message': f'Failed to authenticate with MS Bookings: {str(e)}',
+                'message': f'Failed to authenticate with MS Bookings: {error_msg}',
                 'status': None,
-                'details': None
+                'details': {
+                    'tenant_id': tenant.tenant_id if tenant else 'None',
+                    'error_type': type(e).__name__
+                }
             }
         
         # Parse arguments

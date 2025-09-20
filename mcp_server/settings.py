@@ -141,3 +141,6 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# MCP Server specific settings
+MCP_ENCRYPTION_KEY = 'ErPKIP07E_Jki8PkuVB5vjCVF7-Sz8hu1Glu7emKEzQ='
