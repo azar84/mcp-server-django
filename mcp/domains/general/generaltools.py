@@ -391,12 +391,12 @@ class TimezoneLookupTool(BaseTool):
         # Return as string if not JSON and no comma
         return s
     
-    async def _geocode_city(self, city):
-        """Fetch IANA timezone and country code by city"""
-        import httpx
+    def _geocode_city(self, city):
+        """Fetch IANA timezone and country code by city (synchronous)"""
+        import requests
         
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
+        try:
+            response = requests.get(
                 "https://geocoding-api.open-meteo.com/v1/search",
                 params={
                     'name': city,
@@ -417,6 +417,8 @@ class TimezoneLookupTool(BaseTool):
                 'iana': hit.get('timezone'),
                 'countryCode': hit.get('country_code')
             }
+        except Exception as e:
+            return {'iana': None, 'countryCode': None}
     
     def _pick_windows_tz(self, iana, country_code):
         """Convert IANA timezone to Windows timezone using local mapping"""
@@ -441,7 +443,7 @@ class TimezoneLookupTool(BaseTool):
                 return json.dumps(error_result)
             
             # Geocode to get IANA timezone and country code
-            geocode_result = await self._geocode_city(city)
+            geocode_result = self._geocode_city(city)
             iana = geocode_result['iana']
             country_code = geocode_result['countryCode']
             

@@ -320,47 +320,8 @@ class OpenAIMCPTransport(View):
                     'session_id': f"openai-{message_id}"
                 }
                 
-                # Execute the domain tool in a new thread to avoid event loop conflicts
-                import threading
-                import queue
-                
-                def run_tool():
-                    """Run the async tool in a separate thread"""
-                    try:
-                        return asyncio.run(tool.execute(arguments, context))
-                    except Exception as e:
-                        return f"Tool execution error: {str(e)}"
-                
-                # Use threading to avoid asyncio conflicts
-                result_queue = queue.Queue()
-                
-                def thread_target():
-                    try:
-                        result = run_tool()
-                        result_queue.put(('success', result))
-                    except Exception as e:
-                        result_queue.put(('error', str(e)))
-                
-                thread = threading.Thread(target=thread_target)
-                thread.start()
-                thread.join(timeout=30)  # 30 second timeout
-                
-                if thread.is_alive():
-                    return JsonResponse({
-                        'jsonrpc': '2.0',
-                        'id': message_id,
-                        'error': {
-                            'code': -32603,
-                            'message': 'Tool execution timeout'
-                        }
-                    }, status=500)
-                
-                try:
-                    status, result = result_queue.get_nowait()
-                    if status == 'error':
-                        raise Exception(result)
-                except queue.Empty:
-                    raise Exception("Tool execution failed - no result")
+                # Execute the domain tool
+                result = asyncio.run(tool.execute(arguments, context))
                 
                 return JsonResponse({
                     'jsonrpc': '2.0',

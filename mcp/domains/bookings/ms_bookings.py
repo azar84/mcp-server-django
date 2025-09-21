@@ -87,13 +87,9 @@ class MSBookingsProvider(BaseProvider):
                             'type': 'string',
                             'description': 'Additional notes for the appointment (optional)'
                         },
-                        'serviceId': {
-                            'type': 'string',
-                            'description': 'Service ID (optional, uses tenant default if not provided)'
-                        },
                         'durationMinutes': {
                             'type': 'number',
-                            'description': 'Meeting duration in minutes (optional, uses service default)'
+                            'description': 'Meeting duration in minutes (optional, default: 30 minutes)'
                         }
                     },
                     'required': ['startLocal', 'timeZone', 'customerName', 'customerEmail']
@@ -543,12 +539,12 @@ class MSBookOnlineMeetingTool(BaseTool):
                 service_data = service_response.json()
                 default_dur_mins = self._iso_duration_to_minutes(service_data.get('defaultDuration')) or 30
                 
-                # Calculate duration
+                # Calculate duration - use provided value, service default, or 30 minutes
                 duration_minutes = arguments.get('durationMinutes')
                 if duration_minutes is not None and isinstance(duration_minutes, (int, float)):
                     duration_minutes = int(duration_minutes)
                 else:
-                    duration_minutes = default_dur_mins
+                    duration_minutes = default_dur_mins or 30  # Default to 30 minutes
                 
                 # Calculate end time
                 end_local = self._add_minutes_local(start_local, duration_minutes)
