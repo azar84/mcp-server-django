@@ -7,6 +7,7 @@ class McpConfig(AppConfig):
     verbose_name = 'MCP Server'
     
     def ready(self):
-        """Initialize MCP tools when the app is ready"""
-        from .tools import register_default_tools
-        register_default_tools()
+        """Initialize MCP domains when the app is ready"""
+        # Tools are now automatically registered through the domain-based system
+        # See mcp/domain_registry.py for domain and provider registration
+        pass
