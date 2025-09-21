@@ -432,12 +432,13 @@ class TimezoneLookupTool(BaseTool):
             city = self._coalesce_city(query)
             
             if not city:
-                return {
+                error_result = {
                     'error': True,
                     'message': 'CITY_NOT_PROVIDED',
                     'windows_timezone': None,
                     'iana_timezone': None
                 }
+                return json.dumps(error_result)
             
             # Geocode to get IANA timezone and country code
             geocode_result = await self._geocode_city(city)
@@ -445,18 +446,19 @@ class TimezoneLookupTool(BaseTool):
             country_code = geocode_result['countryCode']
             
             if not iana:
-                return {
+                error_result = {
                     'error': True,
                     'message': 'CITY_NOT_FOUND',
                     'windows_timezone': None,
                     'iana_timezone': None,
                     'searched_city': city
                 }
+                return json.dumps(error_result)
             
             # Get Windows timezone using local mapping
             windows_tz = self._pick_windows_tz(iana, country_code)
             
-            return {
+            result = {
                 'error': False,
                 'message': 'SUCCESS',
                 'searched_city': city,
@@ -464,11 +466,13 @@ class TimezoneLookupTool(BaseTool):
                 'windows_timezone': windows_tz,
                 'country_code': country_code
             }
+            return json.dumps(result)
             
         except Exception as e:
-            return {
+            error_result = {
                 'error': True,
                 'message': f'LOOKUP_FAILED: {str(e)}',
                 'windows_timezone': None,
                 'iana_timezone': None
             }
+            return json.dumps(error_result)
