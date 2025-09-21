@@ -55,7 +55,7 @@ class BaseTool:
         self.description = description
         self.input_schema = input_schema
         self.required_scopes = required_scopes or []
-        self.full_name = f"{provider.provider_type.value}_{name}"
+        self.full_name = f"{provider.provider_type.value}_{provider.name}_{name}"
     
     async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
         """Execute the tool with given arguments and context"""
