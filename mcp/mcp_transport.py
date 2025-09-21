@@ -5,6 +5,8 @@ Compliant with MCP specification for OpenAI Realtime integration
 
 import json
 import asyncio
+import jwt
+import logging
 from django.http import StreamingHttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
@@ -12,8 +14,10 @@ from django.views import View
 from django.utils import timezone
 from .auth import mcp_auth_middleware
 from .protocol import protocol_handler
-from .models import MCPSession, MCPToolCall
+from .models import MCPSession, MCPToolCall, AuthToken
 from channels.db import database_sync_to_async
+
+logger = logging.getLogger(__name__)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
@@ -24,17 +28,32 @@ class MCPStreamableHTTPView(View):
     """
     
     def post(self, request):
-        """Handle MCP Streamable HTTP requests"""
+        """Handle MCP Streaming HTTP requests"""
         try:
-            # Authenticate the request
-            auth_token, error_message = mcp_auth_middleware.authenticate_http(request)
+            # Authenticate the request using the same logic as /api/mcp/
+            auth_header = request.headers.get('Authorization', '')
+            if not auth_header.startswith('Bearer '):
+                return JsonResponse({
+                    'jsonrpc': '2.0',
+                    'id': None,
+                    'error': {
+                        'code': -32001,
+                        'message': 'Missing or invalid Authorization header. Expected "Bearer <token>"'
+                    }
+                }, status=401)
+            
+            # Extract token (remove "Bearer " prefix)
+            bearer_token = auth_header[7:]
+            
+            # Get tenant from token (same logic as OpenAI endpoint)
+            auth_token = self._extract_tenant_from_token(bearer_token)
             if not auth_token:
                 return JsonResponse({
                     'jsonrpc': '2.0',
                     'id': None,
                     'error': {
                         'code': -32001,
-                        'message': f'Authentication failed: {error_message}'
+                        'message': 'Invalid or expired token'
                     }
                 }, status=401)
             
@@ -73,20 +92,13 @@ class MCPStreamableHTTPView(View):
                     }
                 }, status=400)
             
-            # Handle different request types
+            # Handle different request types with streaming
             if isinstance(message_data, list):
-                # Batch request - not supported in sync mode for now
-                return JsonResponse({
-                    'jsonrpc': '2.0',
-                    'id': None,
-                    'error': {
-                        'code': -32601,
-                        'message': 'Batch requests not supported in HTTP mode'
-                    }
-                }, status=400)
+                # Batch request - stream each response
+                return self._handle_batch_request_stream(message_data, auth_token, tenant, request)
             else:
-                # Single request
-                return self._handle_single_request_sync(message_data, auth_token, tenant, request)
+                # Single request - stream the response
+                return self._handle_single_request_stream(message_data, auth_token, tenant, request)
                 
         except Exception as e:
             return JsonResponse({
@@ -97,6 +109,253 @@ class MCPStreamableHTTPView(View):
                     'message': f'Internal error: {str(e)}'
                 }
             }, status=500)
+    
+    def _extract_tenant_from_token(self, bearer_token):
+        """
+        Extract tenant information from Bearer token
+        Same logic as OpenAI MCP transport for consistency
+        """
+        try:
+            # Try to decode as JWT first (if using JWT tokens)
+            try:
+                # For JWT tokens, decode and extract tenant_id and token_secret
+                decoded = jwt.decode(bearer_token, options={"verify_signature": False})
+                tenant_id = decoded.get('tenant_id')
+                token_secret = decoded.get('token_secret')
+                
+                if tenant_id and token_secret:
+                    # Look up by both tenant_id and token_secret for uniqueness
+                    return AuthToken.objects.select_related('tenant').get(
+                        tenant__tenant_id=tenant_id,
+                        token=token_secret,
+                        is_active=True
+                    )
+            except (jwt.InvalidTokenError, jwt.DecodeError):
+                pass
+            
+            # Fallback to direct token lookup (for legacy tokens)
+            return AuthToken.objects.select_related('tenant').filter(
+                token=bearer_token,
+                is_active=True
+            ).first()  # Use first() to avoid MultipleObjectsReturned
+            
+        except AuthToken.DoesNotExist:
+            return None
+        except AuthToken.MultipleObjectsReturned:
+            # If multiple tokens exist, return None for security
+            logger.warning(f"Multiple tokens found for bearer token, rejecting for security")
+            return None
+    
+    def _handle_single_request_stream(self, message_data, auth_token, tenant, request):
+        """Handle a single MCP request with streaming response"""
+        def stream_response():
+            try:
+                # Process the request and yield the response
+                response = self._process_single_request(message_data, auth_token, tenant, request)
+                yield json.dumps(response) + '\n'
+            except Exception as e:
+                error_response = {
+                    'jsonrpc': '2.0',
+                    'id': message_data.get('id'),
+                    'error': {
+                        'code': -32603,
+                        'message': f'Internal error: {str(e)}'
+                    }
+                }
+                yield json.dumps(error_response) + '\n'
+        
+        return StreamingHttpResponse(
+            stream_response(),
+            content_type='application/json'
+        )
+    
+    def _handle_batch_request_stream(self, batch_data, auth_token, tenant, request):
+        """Handle batch MCP requests with streaming responses"""
+        def stream_batch_responses():
+            yield '[\n'  # Start JSON array
+            for i, message_data in enumerate(batch_data):
+                try:
+                    response = self._process_single_request(message_data, auth_token, tenant, request)
+                    if i > 0:
+                        yield ',\n'  # Add comma between responses
+                    yield json.dumps(response)
+                except Exception as e:
+                    error_response = {
+                        'jsonrpc': '2.0',
+                        'id': message_data.get('id'),
+                        'error': {
+                            'code': -32603,
+                            'message': f'Internal error: {str(e)}'
+                        }
+                    }
+                    if i > 0:
+                        yield ',\n'
+                    yield json.dumps(error_response)
+            yield '\n]'  # End JSON array
+        
+        return StreamingHttpResponse(
+            stream_batch_responses(),
+            content_type='application/json'
+        )
+    
+    def _process_single_request(self, message_data, auth_token, tenant, request):
+        """Process a single MCP request and return the response data"""
+        method = message_data.get('method')
+        message_id = message_data.get('id')
+        
+        if method == 'tools/list':
+            return self._handle_tools_list(message_id, auth_token, tenant)
+        elif method == 'initialize':
+            return self._handle_initialize(message_id)
+        elif method == 'tools/call':
+            params = message_data.get('params', {})
+            return self._handle_tools_call(message_id, params, auth_token, tenant)
+        else:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32601,
+                    'message': f'Method not found: {method}'
+                }
+            }
+    
+    def _handle_tools_list(self, message_id, auth_token, tenant):
+        """Handle tools/list method and return response data"""
+        from .domain_registry import domain_registry
+        
+        # Get tenant's available credentials
+        available_credentials = []
+        
+        # Check which credential types are available for this tenant
+        try:
+            if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
+        except:
+            pass
+        
+        try:
+            if tenant.stripe_credential and tenant.stripe_credential.is_active:
+                available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key'])
+        except:
+            pass
+        
+        # Get tools from legacy protocol handler
+        from .protocol import protocol_handler
+        tools = []
+        
+        for tool_name, tool_data in protocol_handler.tools.items():
+            # Check if tenant has required scopes
+            required_scopes = tool_data.get('required_scopes', [])
+            if not set(required_scopes).issubset(set(auth_token.scopes)):
+                continue
+            
+            tools.append({
+                'name': tool_name,
+                'description': tool_data['description'],
+                'inputSchema': tool_data['inputSchema']
+            })
+        
+        return {
+            'jsonrpc': '2.0',
+            'id': message_id,
+            'result': {
+                'tools': tools
+            }
+        }
+    
+    def _handle_initialize(self, message_id):
+        """Handle initialize method and return response data"""
+        return {
+            'jsonrpc': '2.0',
+            'id': message_id,
+            'result': {
+                'protocolVersion': '2024-11-05',
+                'serverInfo': {
+                    'name': 'Django MCP Server',
+                    'version': '2.0.0'
+                },
+                'capabilities': {
+                    'tools': {},
+                    'resources': {}
+                }
+            }
+        }
+    
+    def _handle_tools_call(self, message_id, params, auth_token, tenant):
+        """Handle tools/call method and return response data"""
+        tool_name = params.get('name')
+        arguments = params.get('arguments', {})
+        
+        if not tool_name:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32602,
+                    'message': 'Missing tool name in params'
+                }
+            }
+        
+        # Check if tool exists and tenant has access
+        from .protocol import protocol_handler
+        if tool_name not in protocol_handler.tools:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32601,
+                    'message': f'Tool not found: {tool_name}'
+                }
+            }
+        
+        tool_data = protocol_handler.tools[tool_name]
+        required_scopes = tool_data.get('required_scopes', [])
+        
+        if not set(required_scopes).issubset(set(auth_token.scopes)):
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32001,
+                    'message': f'Insufficient scopes for tool {tool_name}'
+                }
+            }
+        
+        # Execute tool
+        try:
+            # Create context for tool execution
+            context = {
+                'tenant': tenant,
+                'auth_token': auth_token,
+                'session_id': f"stream-{message_id}"
+            }
+            
+            # Execute tool synchronously for streaming
+            result = asyncio.run(tool_data['handler'](arguments, context))
+            
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'result': {
+                    'content': [
+                        {
+                            'type': 'text',
+                            'text': result
+                        }
+                    ]
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32603,
+                    'message': f'Tool execution failed: {str(e)}'
+                }
+            }
     
     def _handle_single_request_sync(self, message_data, auth_token, tenant, request):
         """Handle a single MCP request synchronously"""
@@ -321,7 +580,19 @@ class MCPToolsListView(View):
             
             try:
                 if tenant.stripe_credential and tenant.stripe_credential.is_active:
-                    available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key'])
+                    available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret'])
+            except:
+                pass
+            
+            try:
+                if tenant.calendly_credential and tenant.calendly_credential.is_active:
+                    available_credentials.extend(['calendly_api_token'])
+            except:
+                pass
+            
+            try:
+                if tenant.google_calendar_credential and tenant.google_calendar_credential.is_active:
+                    available_credentials.extend(['google_access_token', 'google_refresh_token', 'google_client_id', 'google_client_secret'])
             except:
                 pass
             

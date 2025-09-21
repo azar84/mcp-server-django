@@ -186,10 +186,14 @@ class MCPAnalyticsView(APIView):
 
 def index(request):
     """Simple index page for the MCP server"""
+    # Build the server URL dynamically
+    server_url = request.build_absolute_uri('/api/mcp/')
+    
     context = {
         'server_name': 'Django MCP Server',
         'version': '1.0.0',
         'tools_count': len(protocol_handler.tools),
-        'websocket_url': '/ws/mcp/'
+        'websocket_url': '/ws/mcp/',
+        'server_url': server_url
     }
     return render(request, 'mcp/index.html', context)

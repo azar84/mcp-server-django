@@ -137,7 +137,29 @@ curl -X POST https://your-server.herokuapp.com/api/admin/tokens/ \
 - `ms_bookings` - Microsoft Bookings provider
 - `write` - Write operations (booking appointments, etc.)
 
-### 3. Use with OpenAI Realtime
+### 3. JWT Tokens for OpenAI (Optional)
+
+For better OpenAI integration, you can create JWT tokens that embed tenant information:
+
+```python
+import jwt
+from mcp.models import AuthToken
+
+# Get your existing token
+auth_token = AuthToken.objects.get(token='your-raw-token')
+
+# Create JWT token with tenant info
+payload = {
+    'tenant_id': auth_token.tenant.tenant_id,
+    'token_secret': auth_token.token
+}
+jwt_token = jwt.encode(payload, 'secret', algorithm='HS256')
+print(f"JWT Token: {jwt_token}")
+```
+
+Use the JWT token instead of the raw token for OpenAI integration.
+
+### 4. Use with OpenAI Realtime
 
 ```python
 from openai import OpenAI
@@ -151,8 +173,8 @@ response = client.responses.create(
         "server_label": "bookings",
         "server_url": "https://your-server.herokuapp.com/api/mcp/",
         "headers": {
-            "Authorization": "Bearer your-mcp-token",
-            "X-Tenant-ID": "your-tenant-id"
+            "Authorization": "Bearer your-mcp-token"
+            # Note: No X-Tenant-ID needed! The /api/mcp/ endpoint extracts tenant from token
         }
     }],
     input="Check server status, get current time, and find timezone for New York"
@@ -162,9 +184,18 @@ response = client.responses.create(
 ## 📚 API Endpoints
 
 ### MCP Protocol
-- `POST /api/mcp/` - Main MCP Streamable HTTP endpoint
-- `GET /api/mcp/capabilities/` - Server capabilities
-- `GET /api/mcp/tools/` - Available tools list
+
+#### Primary Endpoint (Recommended)
+- `POST /api/mcp/` - **OpenAI-compatible MCP endpoint**
+  - Authentication: `Authorization: Bearer <token>` only
+  - Supports: `initialize`, `tools/list`, `tools/call`
+  - Extracts tenant info from token automatically
+  - **Use this for OpenAI Realtime integration**
+
+#### Legacy Endpoints (Testing/Debug)
+- `GET /api/mcp/tools/` - Available tools list (requires Bearer + X-Tenant-ID)
+- `GET /api/mcp/capabilities/` - Server capabilities (requires Bearer + X-Tenant-ID)
+- `POST /api/mcp/legacy/` - Legacy MCP transport (requires Bearer + X-Tenant-ID)
 
 ### Administration
 - `POST /api/admin/tenants/` - Tenant management
@@ -217,7 +248,6 @@ Check server status:
 ```bash
 curl -X POST https://your-server.herokuapp.com/api/mcp/ \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general_get_server_status","arguments":{}}}'
 ```
@@ -258,21 +288,18 @@ python authenticated_client_example.py
 # Test server status
 curl -X POST https://your-server.herokuapp.com/api/mcp/ \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general_get_server_status","arguments":{}}}'
 
 # Test timezone lookup
 curl -X POST https://your-server.herokuapp.com/api/mcp/ \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"general_get_timezone_by_location","arguments":{"query":"Saskatoon"}}}'
 
 # Test calculator
 curl -X POST https://your-server.herokuapp.com/api/mcp/ \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"general_calculator","arguments":{"expression":"2+2*3"}}}'
 ```

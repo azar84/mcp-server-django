@@ -12,8 +12,8 @@ urlpatterns = [
     path('api/mcp/', openai_mcp_transport.OpenAIMCPTransport.as_view(), name='openai_mcp'),
     path('api/mcp/health/', openai_mcp_transport.OpenAIMCPHealthCheck.as_view(), name='openai_mcp_health'),
     
-    # Legacy MCP Streamable HTTP Transport (for testing)
-    path('api/mcp/legacy/', mcp_transport.MCPStreamableHTTPView.as_view(), name='mcp_streamable'),
+    # MCP Streaming RPC Transport
+    path('api/mcp/rpc/stream/', mcp_transport.MCPStreamableHTTPView.as_view(), name='mcp_streamable'),
     path('api/mcp/capabilities/', mcp_transport.MCPCapabilitiesView.as_view(), name='mcp_capabilities'),
     path('api/mcp/tools/', mcp_transport.MCPToolsListView.as_view(), name='mcp_tools_list'),
     

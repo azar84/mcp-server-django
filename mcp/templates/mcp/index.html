@@ -201,25 +201,43 @@
             <a href="#endpoints">API Endpoints</a>
             <a href="#tools">Available Tools</a>
             <a href="#auth">Authentication</a>
-            <a href="#openai">OpenAI Integration</a>
         </div>
 
         <div class="section" id="endpoints">
             <h2>API Endpoints</h2>
             
+            <h3 style="color: #059669; margin-bottom: 1rem;">🎯 Primary Endpoint (Recommended)</h3>
             <div class="endpoint">
                 <span><span class="method post">POST</span> /api/mcp/</span>
-                <span><strong>Main MCP Endpoint</strong> - OpenAI Realtime compatible</span>
+                <span><strong>OpenAI-compatible MCP Endpoint</strong> - Bearer token only</span>
+            </div>
+            <div class="auth-info">
+                <strong>Authentication:</strong> <code>Authorization: Bearer &lt;token&gt;</code> only<br>
+                <strong>Features:</strong> initialize, tools/list, tools/call<br>
+                <strong>Use for:</strong> OpenAI Realtime integration
             </div>
             
+            <h3 style="color: #7c3aed; margin-top: 2rem; margin-bottom: 1rem;">⚡ Streaming Endpoint</h3>
+            <div class="endpoint">
+                <span><span class="method post">POST</span> /api/mcp/rpc/stream/</span>
+                <span><strong>Streaming MCP RPC Endpoint</strong> - Real streaming HTTP responses</span>
+            </div>
+            <div class="auth-info">
+                <strong>Authentication:</strong> <code>Authorization: Bearer &lt;token&gt;</code> only<br>
+                <strong>Features:</strong> Streaming responses, batch requests, high performance<br>
+                <strong>Use for:</strong> Applications requiring real-time streaming data<br>
+                <strong>Note:</strong> Uses same smart token logic as primary endpoint
+            </div>
+            
+            <h3 style="color: #d97706; margin-top: 2rem; margin-bottom: 1rem;">🔧 Legacy Endpoints (Testing/Debug)</h3>
             <div class="endpoint">
                 <span><span class="method get">GET</span> /api/mcp/tools/</span>
-                <span>Get available tools (scope-filtered)</span>
+                <span>Get available tools (requires Bearer + X-Tenant-ID)</span>
             </div>
             
             <div class="endpoint">
                 <span><span class="method get">GET</span> /api/mcp/capabilities/</span>
-                <span>Server capabilities and info</span>
+                <span>Server capabilities (requires Bearer + X-Tenant-ID)</span>
             </div>
             
             <div class="endpoint">
@@ -302,8 +320,14 @@
             <h2>Authentication</h2>
             
             <div class="step">
-                <h4>Token-based Authentication</h4>
-                <p>All requests require a Bearer token and tenant ID. Contact your administrator for credentials.</p>
+                <h4>🎯 Primary Endpoint Authentication (/api/mcp/)</h4>
+                <p><strong>Recommended for OpenAI integration.</strong> Only requires Bearer token - tenant info is extracted automatically.</p>
+                <div class="code-block">Authorization: Bearer your-token-here</div>
+            </div>
+            
+            <div class="step">
+                <h4>🔧 Legacy Endpoint Authentication</h4>
+                <p>Legacy endpoints require both Bearer token and X-Tenant-ID header.</p>
                 <div class="code-block">Authorization: Bearer your-token-here
 X-Tenant-ID: your-tenant-id-here</div>
             </div>
@@ -321,59 +345,19 @@ X-Tenant-ID: your-tenant-id-here</div>
             </div>
         </div>
 
-        <div class="section" id="openai">
-            <h2>OpenAI Integration</h2>
-            
-            <h3>Python - Responses API</h3>
-            <div class="code-block">from openai import OpenAI
-
-client = OpenAI(api_key="your-openai-api-key")
-
-response = client.responses.create(
-    model="gpt-4o-realtime-preview",
-    tools=[{
-        "type": "mcp",
-        "server_label": "bookings",
-        "server_url": "https://your-ngrok-url.ngrok-free.app/api/mcp/",
-        "headers": {
-            "Authorization": "Bearer your-token-here",
-            "X-Tenant-ID": "your-tenant-id-here"
-        }
-    }],
-    input="Check staff availability for tomorrow"
-)</div>
-            
-            <h3>Python - Agents SDK</h3>
-            <div class="code-block">agent = client.beta.agents.create(
-    model="gpt-4o",
-    name="Booking Assistant",
-    instructions="You help with booking appointments.",
-    tools=[{
-        "type": "mcp",
-        "server_label": "bookings",
-        "server_url": "https://your-ngrok-url.ngrok-free.app/api/mcp/",
-        "headers": {
-            "Authorization": "Bearer your-token-here",
-            "X-Tenant-ID": "your-tenant-id-here"
-        }
-    }]
-)</div>
-        </div>
 
         <div class="section" id="testing">
             <h2>API Testing</h2>
             
             <h3>List Available Tools</h3>
-            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+            <div class="code-block">curl -X POST {{ server_url }} \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"1","method":"tools/list"}'</div>
             
             <h3>Test Server Status (Connection Test)</h3>
-            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+            <div class="code-block">curl -X POST {{ server_url }} \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -386,9 +370,8 @@ response = client.responses.create(
   }'</div>
             
             <h3>Call MS Bookings Tool</h3>
-            <div class="code-block">curl -X POST https://your-ngrok-url.ngrok-free.app/api/mcp/ \
+            <div class="code-block">curl -X POST {{ server_url }} \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -442,9 +425,8 @@ response = client.responses.create(
             
             <div class="step">
                 <h4>2. Test Connection</h4>
-                <div class="code-block">curl -X POST /api/mcp/ \
+                <div class="code-block">curl -X POST {{ server_url }} \
   -H "Authorization: Bearer your-token" \
-  -H "X-Tenant-ID: your-tenant-id" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":"1","method":"tools/list"}'</div>
             </div>

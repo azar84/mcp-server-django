@@ -122,8 +122,8 @@ response = client.responses.create(
         "server_label": "bookings",
         "server_url": "https://your-app-name.herokuapp.com/api/mcp/",
         "headers": {
-            "Authorization": "Bearer your-token",
-            "X-Tenant-ID": "your-tenant-id"
+            "Authorization": "Bearer your-token"
+            # No X-Tenant-ID needed - tenant info extracted from token
         }
     }],
     input="Check server status"
