@@ -141,6 +141,11 @@ class MSBookingsCredential(models.Model):
         default=list,
         help_text="List of default staff member GUIDs for this tenant"
     )
+    service_id = models.CharField(
+        max_length=255,
+        help_text="Default Microsoft Bookings service ID",
+        default=""
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

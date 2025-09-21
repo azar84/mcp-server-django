@@ -8,6 +8,45 @@ from typing import Dict, Any
 from .protocol import protocol_handler
 
 
+async def ms_bookings_book_online_meeting_tool(arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
+    """Book an online meeting using Microsoft Bookings"""
+    try:
+        # Get the MS Bookings provider from domain registry
+        from .domain_registry import domain_registry
+        from .domains.bookings.ms_bookings import MSBookOnlineMeetingTool
+        
+        # Get the provider instance
+        provider = domain_registry.domains["bookings"].providers["ms_bookings"]
+        
+        # Create tool instance with required arguments
+        booking_tool = MSBookOnlineMeetingTool(
+            name="book_online_meeting",
+            provider=provider,
+            description="Book an online meeting using Microsoft Bookings",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "startLocal": {"type": "string"},
+                    "timeZone": {"type": "string"},
+                    "customerName": {"type": "string"},
+                    "customerEmail": {"type": "string"}
+                },
+                "required": ["startLocal", "timeZone", "customerName", "customerEmail"]
+            }
+        )
+        
+        # Execute the tool
+        result = await booking_tool._execute_with_credentials(arguments, {}, context)
+        
+        # Return the result as a string
+        if isinstance(result, dict):
+            import json
+            return json.dumps(result, indent=2)
+        return str(result)
+        
+    except Exception as e:
+        return f'ERROR: {str(e)}'
+
 async def ms_bookings_get_staff_availability_tool(arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
     """Get staff availability from Microsoft Bookings"""
     try:
@@ -118,7 +157,7 @@ def register_default_tools():
         requires_credentials=False
     )
     
-    # MS Bookings tool - domain-based tool
+    # MS Bookings tools - domain-based tools
     protocol_handler.register_tool(
         name="bookings_get_staff_availability",
         description="Get staff availability from Microsoft Bookings for a 7-day window",
@@ -149,6 +188,54 @@ def register_default_tools():
         },
         handler=ms_bookings_get_staff_availability_tool,
         required_scopes=["booking", "ms_bookings"],
+        requires_credentials=True
+    )
+    
+    protocol_handler.register_tool(
+        name="bookings_book_online_meeting",
+        description="After confirming with the client, use this tool to book the meeting online. Gather the following information and ensure you've found staff availability and never book a meeting outside it. When you call the tool try to collect missing information and once you get it send it to this tool.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "startLocal": {
+                    "type": "string",
+                    "description": "YYYY-MM-DDTHH:mm[:ss] (local wall time)",
+                    "examples": ["2025-09-15T14:30:00", "2025-09-15T14:30", "2025-09-15"]
+                },
+                "timeZone": {
+                    "type": "string",
+                    "description": "Windows time zone, e.g. 'Canada Central Standard Time'",
+                    "examples": ["Eastern Standard Time", "Pacific Standard Time", "Canada Central Standard Time"]
+                },
+                "customerName": {
+                    "type": "string",
+                    "description": "Customer full name"
+                },
+                "customerEmail": {
+                    "type": "string",
+                    "description": "Customer email address"
+                },
+                "customerPhone": {
+                    "type": "string",
+                    "description": "Customer phone number (optional, will be formatted to E.164)"
+                },
+                "notes": {
+                    "type": "string",
+                    "description": "Additional notes for the appointment (optional)"
+                },
+                "serviceId": {
+                    "type": "string",
+                    "description": "Service ID (optional, uses tenant default if not provided)"
+                },
+                "durationMinutes": {
+                    "type": "number",
+                    "description": "Meeting duration in minutes (optional, uses service default)"
+                }
+            },
+            "required": ["startLocal", "timeZone", "customerName", "customerEmail"]
+        },
+        handler=ms_bookings_book_online_meeting_tool,
+        required_scopes=["booking", "ms_bookings", "write"],
         requires_credentials=True
     )
     

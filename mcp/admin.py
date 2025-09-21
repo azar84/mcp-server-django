@@ -258,9 +258,9 @@ class ClientCredentialAdmin(admin.ModelAdmin):
 
 @admin.register(MSBookingsCredential)
 class MSBookingsCredentialAdmin(admin.ModelAdmin):
-    list_display = ('tenant', 'business_id', 'azure_tenant_id', 'client_id_preview', 'is_active', 'created_at', 'updated_at')
+    list_display = ('tenant', 'business_id', 'service_id', 'azure_tenant_id', 'client_id_preview', 'is_active', 'created_at', 'updated_at')
     list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('tenant__name', 'tenant__tenant_id', 'azure_tenant_id', 'client_id', 'business_id')
+    search_fields = ('tenant__name', 'tenant__tenant_id', 'azure_tenant_id', 'client_id', 'business_id', 'service_id')
     readonly_fields = ('created_at', 'updated_at')
     
     fieldsets = (
@@ -272,8 +272,8 @@ class MSBookingsCredentialAdmin(admin.ModelAdmin):
             'description': 'Microsoft Azure application credentials for MS Bookings access'
         }),
         ('Bookings Configuration', {
-            'fields': ('business_id', 'staff_ids'),
-            'description': 'Default business ID and staff member GUIDs for this tenant'
+            'fields': ('business_id', 'service_id', 'staff_ids'),
+            'description': 'Default business ID, service ID, and staff member GUIDs for this tenant'
         }),
         ('Status', {
             'fields': ('is_active',)

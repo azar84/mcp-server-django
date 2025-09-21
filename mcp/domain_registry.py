@@ -26,6 +26,11 @@ class MCPDomainRegistry:
         general_domain.register_provider(GeneralToolsProvider())
         self.domains["general"] = general_domain
         
+        # Bookings domain
+        bookings_domain = DomainManager("bookings")
+        bookings_domain.register_provider(MSBookingsProvider())
+        self.domains["bookings"] = bookings_domain
+        
         # Other domains are structure only for now
         # They will be activated when tools are fully implemented
     

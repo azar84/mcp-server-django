@@ -55,47 +55,48 @@ class MSBookingsProvider(BaseProvider):
                 'required_scopes': ['booking', 'ms_bookings']
             },
             {
-                'name': 'book_slot',
-                'tool_class': MSBookSlotTool,
-                'description': 'Create a booking in Microsoft Bookings',
+                'name': 'book_online_meeting',
+                'tool_class': MSBookOnlineMeetingTool,
+                'description': 'After confirming with the client, use this tool to book the meeting online. Gather the following information and ensure you\'ve found staff availability and never book a meeting outside it. When you call the tool try to collect missing information and once you get it send it to this tool.',
                 'input_schema': {
                     'type': 'object',
                     'properties': {
-                        'business_id': {
+                        'startLocal': {
                             'type': 'string',
-                            'description': 'Microsoft Bookings business ID'
+                            'description': 'YYYY-MM-DDTHH:mm[:ss] (local wall time)',
+                            'examples': ['2025-09-15T14:30:00', '2025-09-15T14:30', '2025-09-15']
                         },
-                        'service_id': {
+                        'timeZone': {
                             'type': 'string',
-                            'description': 'Service ID'
+                            'description': 'Windows time zone, e.g. \'Canada Central Standard Time\'',
+                            'examples': ['Eastern Standard Time', 'Pacific Standard Time', 'Canada Central Standard Time']
                         },
-                        'staff_member_ids': {
-                            'type': 'array',
-                            'items': {'type': 'string'},
-                            'description': 'List of staff member IDs'
-                        },
-                        'start_time': {
-                            'type': 'string',
-                            'description': 'Appointment start time (ISO 8601 format)'
-                        },
-                        'customer_name': {
+                        'customerName': {
                             'type': 'string',
                             'description': 'Customer full name'
                         },
-                        'customer_email': {
+                        'customerEmail': {
                             'type': 'string',
                             'description': 'Customer email address'
                         },
-                        'customer_phone': {
+                        'customerPhone': {
                             'type': 'string',
-                            'description': 'Customer phone number'
+                            'description': 'Customer phone number (optional, will be formatted to E.164)'
                         },
                         'notes': {
                             'type': 'string',
-                            'description': 'Additional notes for the appointment'
+                            'description': 'Additional notes for the appointment (optional)'
+                        },
+                        'serviceId': {
+                            'type': 'string',
+                            'description': 'Service ID (optional, uses tenant default if not provided)'
+                        },
+                        'durationMinutes': {
+                            'type': 'number',
+                            'description': 'Meeting duration in minutes (optional, uses service default)'
                         }
                     },
-                    'required': ['business_id', 'service_id', 'start_time', 'customer_name', 'customer_email']
+                    'required': ['startLocal', 'timeZone', 'customerName', 'customerEmail']
                 },
                 'required_scopes': ['booking', 'ms_bookings', 'write']
             }
@@ -372,105 +373,273 @@ class MSGetStaffAvailabilityTool(BaseTool):
             })
 
 
-class MSBookSlotTool(BaseTool):
-    """Create a booking in Microsoft Bookings"""
+class MSBookOnlineMeetingTool(BaseTool):
+    """Book an online meeting in Microsoft Bookings with comprehensive date/time handling"""
+    
+    def _pad(self, n):
+        """Pad number to 2 digits"""
+        return str(n).zfill(2)
+    
+    def _to_local_string(self, dt):
+        """Convert datetime to local ISO string"""
+        return f"{dt.year}-{self._pad(dt.month)}-{self._pad(dt.day)}T{self._pad(dt.hour)}:{self._pad(dt.minute)}:{self._pad(dt.second)}"
+    
+    def _normalize_start_local(self, input_str):
+        """Normalize startLocal input to YYYY-MM-DDTHH:mm:ss format"""
+        import re
+        from datetime import datetime
+        
+        if not isinstance(input_str, str) or not input_str.strip():
+            raise ValueError('Missing "startLocal"')
+        
+        s = input_str.strip().replace(" ", "T")
+        
+        # Full format: YYYY-MM-DDTHH:mm:ss
+        if re.match(r'^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}:\d{2}$', s):
+            date_part, time_part = s.split("T")
+            h, m, sec = time_part.split(":")
+            return f"{date_part}T{self._pad(int(h))}:{self._pad(int(m))}:{self._pad(int(sec))}"
+        
+        # Short format: YYYY-MM-DDTHH:mm
+        if re.match(r'^\d{4}-\d{2}-\d{2}T\d{1,2}:\d{2}$', s):
+            date_part, time_part = s.split("T")
+            h, m = time_part.split(":")
+            return f"{date_part}T{self._pad(int(h))}:{self._pad(int(m))}:00"
+        
+        # Date only: YYYY-MM-DD
+        if re.match(r'^\d{4}-\d{2}-\d{2}$', s):
+            return f"{s}T00:00:00"
+        
+        # Try parsing as datetime
+        try:
+            dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+            return self._to_local_string(dt)
+        except:
+            pass
+        
+        raise ValueError(f'Invalid startLocal format: {input_str}')
+    
+    def _add_minutes_local(self, local_iso, minutes):
+        """Add minutes to local ISO datetime string"""
+        from datetime import datetime, timedelta
+        
+        # Parse the local ISO string
+        y, mo, d = int(local_iso[:4]), int(local_iso[5:7]), int(local_iso[8:10])
+        h, m, s = int(local_iso[11:13]), int(local_iso[14:16]), int(local_iso[17:19])
+        
+        dt = datetime(y, mo, d, h, m, s)
+        dt += timedelta(minutes=minutes)
+        return self._to_local_string(dt)
+    
+    def _to_e164_caus(self, phone):
+        """Convert phone number to E.164 format for CA/US"""
+        if not phone:
+            return None
+        
+        import re
+        digits = re.sub(r'\D+', '', str(phone))
+        if not digits:
+            return None
+        
+        if len(digits) == 11 and digits.startswith('1'):
+            return f"+{digits}"
+        if len(digits) == 10:
+            return f"+1{digits}"
+        return None
+    
+    def _iso_duration_to_minutes(self, duration):
+        """Convert ISO 8601 duration to minutes"""
+        import re
+        if not isinstance(duration, str):
+            return None
+        
+        match = re.match(r'^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$', duration, re.I)
+        if not match:
+            return None
+        
+        days = int(match.group(1) or 0)
+        hours = int(match.group(2) or 0)
+        minutes = int(match.group(3) or 0)
+        seconds = int(match.group(4) or 0)
+        
+        return days * 1440 + hours * 60 + minutes + (seconds + 59) // 60  # Ceil seconds to minutes
+    
+    def _to_graph_datetime(self, iso_local, use_utc=False):
+        """Convert local ISO to Microsoft Graph datetime format"""
+        if not use_utc:
+            return iso_local
+        
+        date_part, time_part = iso_local.split("T")
+        hh, mm, ss = time_part.split(":")
+        return f"{date_part}T{self._pad(int(hh))}:{self._pad(int(mm))}:{self._pad(int(ss))}.0000000+00:00"
     
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                       credentials: Dict[str, str], 
                                       context: Dict[str, Any]) -> Any:
+        from channels.db import database_sync_to_async
+        
         try:
             # Get access token using tenant's credentials
             tenant = context.get('tenant')
             access_token = await self.provider.get_access_token(tenant)
         except Exception as e:
-            return {'error': f'Failed to authenticate with MS Bookings: {str(e)}'}
-        
-        business_id = arguments['business_id']
-        service_id = arguments['service_id']
-        staff_member_ids = arguments.get('staff_member_ids', [])
-        start_time = arguments['start_time']
-        customer_name = arguments['customer_name']
-        customer_email = arguments['customer_email']
-        customer_phone = arguments.get('customer_phone', '')
-        notes = arguments.get('notes', '')
+            return f'ERROR: Failed to authenticate with MS Bookings: {str(e)}'
         
         try:
-            import httpx
-            from datetime import datetime, timedelta
+            # Extract and validate arguments
+            start_local_raw = arguments.get('startLocal') or arguments.get('startISO') or arguments.get('start') or arguments.get('dateTime')
+            customer_time_zone = arguments.get('timeZone')
+            customer_name = arguments.get('customerName')
+            customer_email = arguments.get('customerEmail')
+            customer_phone = arguments.get('customerPhone')
+            notes = arguments.get('notes')
             
+            if not customer_time_zone or not isinstance(customer_time_zone, str):
+                return 'ERROR: missing "timeZone"'
+            if not customer_name or not customer_email:
+                return 'ERROR: missing "customerName" or "customerEmail"'
+            
+            # Normalize start time
+            start_local = self._normalize_start_local(str(start_local_raw))
+            
+            # Get tenant MS Bookings configuration using sync_to_async
+            @database_sync_to_async
+            def get_ms_bookings_config(tenant):
+                try:
+                    ms_cred = tenant.ms_bookings_credential
+                    return {
+                        'business_id': ms_cred.business_id,
+                        'service_id': ms_cred.service_id,
+                        'staff_ids': ms_cred.staff_ids or []
+                    }
+                except Exception as e:
+                    raise Exception(f'MS Bookings credentials not configured: {str(e)}')
+            
+            try:
+                config = await get_ms_bookings_config(tenant)
+                business_id = config['business_id']
+                service_id = arguments.get('serviceId') or config['service_id']
+                staff_ids = config['staff_ids']
+            except Exception as e:
+                return f'ERROR: {str(e)}'
+            
+            if not business_id:
+                return 'ERROR: MS Bookings business ID not configured in tenant credentials'
+            if not service_id:
+                return 'ERROR: MS Bookings service ID not configured in tenant credentials'
+            
+            # Get service details
+            import httpx
             async with httpx.AsyncClient() as client:
-                # Get service duration
                 service_response = await client.get(
-                    f"{self.provider.config['api_base']}/bookingBusinesses/{business_id}/services/{service_id}",
+                    f"https://graph.microsoft.com/beta/solutions/bookingBusinesses/{business_id}/services/{service_id}",
                     headers={'Authorization': f'Bearer {access_token}'},
                     timeout=10
                 )
                 
                 if service_response.status_code != 200:
-                    return {'error': f'Failed to get service details: {service_response.text}'}
+                    return f'ERROR: Failed to get service details: {service_response.text}'
                 
                 service_data = service_response.json()
-            
-            # Calculate end time based on service duration
-            start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-            duration_iso = service_data.get('defaultDuration', 'PT30M')
-            
-            # Parse duration
-            import re
-            duration_match = re.match(r'PT(\d+)M', duration_iso)
-            duration_minutes = int(duration_match.group(1)) if duration_match else 30
-            end_dt = start_dt + timedelta(minutes=duration_minutes)
-            
-            # Create appointment data
-            appointment_data = {
-                'serviceId': service_id,
-                'staffMemberIds': staff_member_ids if staff_member_ids else service_data.get('staffMemberIds', []),
-                'startTime': {
-                    'dateTime': start_time,
-                    'timeZone': 'UTC'
-                },
-                'endTime': {
-                    'dateTime': end_dt.isoformat(),
-                    'timeZone': 'UTC'
-                },
-                'customerName': customer_name,
-                'customerEmailAddress': customer_email,
-                'customerPhone': customer_phone,
-                'customerNotes': notes
-            }
-            
-            response = await client.post(
-                f"{self.provider.config['api_base']}/bookingBusinesses/{business_id}/appointments",
-                headers={
-                    'Authorization': f'Bearer {access_token}',
-                    'Content-Type': 'application/json'
-                },
-                json=appointment_data,
-                timeout=10
-            )
-            
-            if response.status_code == 201:
-                appointment_result = response.json()
-                return {
-                    'provider': 'ms_bookings',
-                    'status': 'booked',
-                    'appointment_id': appointment_result['id'],
-                    'start_time': start_time,
-                    'end_time': end_dt.isoformat(),
-                    'service_id': service_id,
-                    'customer': {
-                        'name': customer_name,
-                        'email': customer_email,
-                        'phone': customer_phone
+                default_dur_mins = self._iso_duration_to_minutes(service_data.get('defaultDuration')) or 30
+                
+                # Calculate duration
+                duration_minutes = arguments.get('durationMinutes')
+                if duration_minutes is not None and isinstance(duration_minutes, (int, float)):
+                    duration_minutes = int(duration_minutes)
+                else:
+                    duration_minutes = default_dur_mins
+                
+                # Calculate end time
+                end_local = self._add_minutes_local(start_local, duration_minutes)
+                
+                # Format phone number
+                e164_phone = self._to_e164_caus(customer_phone)
+                sms_enabled = bool(e164_phone)
+                
+                # Build appointment payload
+                use_utc = arguments.get('useUTC', False)
+                start_time_zone_field = "UTC" if use_utc else (arguments.get('startEndTimeZone') or customer_time_zone)
+                
+                payload = {
+                    "@odata.type": "#microsoft.graph.bookingAppointment",
+                    "customerTimeZone": customer_time_zone,
+                    "customerName": customer_name,
+                    "customerEmailAddress": customer_email,
+                    "customerPhone": e164_phone or customer_phone,
+                    "customerNotes": notes,
+                    "smsNotificationsEnabled": sms_enabled,
+                    "end": {
+                        "@odata.type": "#microsoft.graph.dateTimeTimeZone",
+                        "dateTime": self._to_graph_datetime(end_local, use_utc=use_utc),
+                        "timeZone": start_time_zone_field,
                     },
-                    'notes': notes
-                }
-            else:
-                return {
-                    'provider': 'ms_bookings',
-                    'status': 'failed',
-                    'error': response.text
+                    "isCustomerAllowedToManageBooking": True,
+                    "isLocationOnline": True,
+                    "optOutOfCustomerEmail": False,
+                    "anonymousJoinWebUrl": None,
+                    "postBuffer": arguments.get('postBuffer', 'PT10M'),
+                    "preBuffer": arguments.get('preBuffer', 'PT5M'),
+                    "price": arguments.get('price', 0.0),
+                    "priceType@odata.type": "#microsoft.graph.bookingPriceType",
+                    "priceType": arguments.get('priceType', 'free'),
+                    "reminders@odata.type": "#Collection(microsoft.graph.bookingReminder)",
+                    "reminders": arguments.get('reminders', []),
+                    "serviceId": service_id,
+                    "serviceName": arguments.get('serviceName', 'Free Consultation with HiQSense'),
+                    "serviceNotes": arguments.get('serviceNotes'),
+                    "staffMemberIds": arguments.get('staffMemberIds', staff_ids),
+                    "start": {
+                        "@odata.type": "#microsoft.graph.dateTimeTimeZone",
+                        "dateTime": self._to_graph_datetime(start_local, use_utc=use_utc),
+                        "timeZone": start_time_zone_field,
+                    },
+                    "maximumAttendeesCount": arguments.get('maximumAttendeesCount', 1),
+                    "filledAttendeesCount": arguments.get('filledAttendeesCount', 1),
+                    "customers@odata.type": "#Collection(microsoft.graph.bookingCustomerInformation)",
+                    "customers": [
+                        {
+                            "@odata.type": "#microsoft.graph.bookingCustomerInformation",
+                            **({"customerId": arguments['customerId']} if arguments.get('customerId') else {}),
+                            "name": customer_name,
+                            "emailAddress": customer_email,
+                            "phone": e164_phone or customer_phone,
+                            "timeZone": customer_time_zone
+                        }
+                    ],
                 }
                 
+                # Create the appointment
+                response = await client.post(
+                    f"https://graph.microsoft.com/beta/solutions/bookingBusinesses/{business_id}/appointments",
+                    headers={
+                        'Authorization': f'Bearer {access_token}',
+                        'Content-Type': 'application/json'
+                    },
+                    json=payload,
+                    timeout=10
+                )
+                
+                if response.status_code in [200, 201]:
+                    resp_data = response.json()
+                    return json.dumps({
+                        "ok": True,
+                        "appointmentId": resp_data.get('id'),
+                        "joinUrl": resp_data.get('onlineMeetingUrl') or resp_data.get('anonymousJoinWebUrl'),
+                        "window": {
+                            "startLocal": start_local,
+                            "endLocal": end_local,
+                            "startEndTimeZone": start_time_zone_field,
+                            "customerTimeZone": customer_time_zone
+                        },
+                        "usedDurationMinutes": duration_minutes,
+                        "payloadSent": payload,
+                        "response": resp_data
+                    })
+                else:
+                    error_details = response.text
+                    request_id = response.headers.get('request-id') or response.headers.get('client-request-id')
+                    return f'ERROR: Booking failed (HTTP {response.status_code}){f" [request-id: {request_id}]" if request_id else ""} :: {error_details}'
+                
         except Exception as e:
-            return {'error': f'Microsoft Bookings error: {str(e)}'}
+            return f'ERROR: {str(e)}'
