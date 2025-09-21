@@ -9,6 +9,7 @@ from .domains.bookings import CalendlyProvider, GoogleCalendarProvider, MSBookin
 from .domains.crm import SalesforceProvider, HubSpotProvider, PipedriveProvider  
 from .domains.payments import StripeProvider, PayPalProvider
 from .domains.email import SendGridProvider, MailgunProvider
+from .domains.voice_sms import TwilioProvider
 
 
 class MCPDomainRegistry:
@@ -32,6 +33,11 @@ class MCPDomainRegistry:
         bookings_domain.register_provider(GoogleCalendarProvider())
         bookings_domain.register_provider(CalendlyProvider())
         self.domains["bookings"] = bookings_domain
+        
+        # Voice & SMS domain
+        voice_sms_domain = DomainManager("voice_sms")
+        voice_sms_domain.register_provider(TwilioProvider())
+        self.domains["voice_sms"] = voice_sms_domain
         
         # Other domains are structure only for now
         # They will be activated when tools are fully implemented

@@ -282,3 +282,63 @@ class StripeCredential(models.Model):
         if self.secret_key.startswith('sk_'):
             return f"{self.secret_key[:8]}..."
         return "sk_..."
+
+
+class TwilioCredential(models.Model):
+    """Twilio Voice & SMS credentials"""
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name='twilio_credential'
+    )
+    account_sid = models.CharField(
+        max_length=255,
+        help_text="Twilio Account SID"
+    )
+    auth_token = models.TextField(
+        help_text="Twilio Auth Token (encrypted)"
+    )
+    phone_number = models.CharField(
+        max_length=20,
+        help_text="Twilio phone number (E.164 format, e.g., +15551234567)"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def save(self, *args, **kwargs):
+        """Override save to encrypt auth_token if it's being set"""
+        if self.auth_token and not self._is_encrypted(self.auth_token):
+            from .auth import mcp_authenticator
+            # Encrypt the auth token before saving
+            self.auth_token = mcp_authenticator.cipher_suite.encrypt(
+                self.auth_token.encode()
+            ).decode()
+        super().save(*args, **kwargs)
+    
+    def _is_encrypted(self, value):
+        """Check if a value is already encrypted (starts with gAAAAAB)"""
+        return value.startswith('gAAAAAB')
+    
+    def get_auth_token(self):
+        """Get the decrypted auth token"""
+        from .auth import mcp_authenticator
+        try:
+            return mcp_authenticator.cipher_suite.decrypt(
+                self.auth_token.encode()
+            ).decode()
+        except Exception:
+            return self.auth_token  # Return as-is if decryption fails
+    
+    class Meta:
+        verbose_name = "Twilio Credential"
+        verbose_name_plural = "Twilio Credentials"
+        db_table = 'mcp_twilio_credentials'
+    
+    def __str__(self):
+        return f"Twilio - {self.tenant.name}"
+    
+    @property
+    def account_sid_preview(self):
+        """Show only first 8 characters of account SID"""
+        return f"{self.account_sid[:8]}..." if self.account_sid else "Not set"

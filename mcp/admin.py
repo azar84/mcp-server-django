@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 from .models import (
     Tenant, AuthToken, MCPSession, MCPTool, MCPToolCall, ClientCredential,
-    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential
+    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential, TwilioCredential
 )
 from .admin_config import mcp_admin_site
 
@@ -394,6 +394,41 @@ class GoogleCalendarCredentialAdmin(admin.ModelAdmin):
             if field in form.base_fields:
                 form.base_fields[field].widget.attrs['type'] = 'password'
         return form
+
+
+@admin.register(TwilioCredential)
+class TwilioCredentialAdmin(admin.ModelAdmin):
+    list_display = ('tenant', 'account_sid_preview', 'phone_number', 'is_active', 'created_at', 'updated_at')
+    list_filter = ('is_active', 'created_at', 'updated_at')
+    search_fields = ('tenant__name', 'tenant__tenant_id', 'account_sid', 'phone_number')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Tenant', {
+            'fields': ('tenant',)
+        }),
+        ('Twilio Configuration', {
+            'fields': ('account_sid', 'auth_token', 'phone_number'),
+            'description': 'Twilio API credentials and phone number for SMS/Voice services'
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        # Make auth_token field a password field for security
+        if 'auth_token' in form.base_fields:
+            form.base_fields['auth_token'].widget.attrs['type'] = 'password'
+        return form
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('tenant')
 
 
 # Customize admin site header and title

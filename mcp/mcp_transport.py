@@ -596,6 +596,12 @@ class MCPToolsListView(View):
             except:
                 pass
             
+            try:
+                if tenant.twilio_credential and tenant.twilio_credential.is_active:
+                    available_credentials.extend(['twilio_account_sid', 'twilio_auth_token', 'twilio_phone_number'])
+            except:
+                pass
+            
             # Get tools available to this tenant
             available_tools = domain_registry.get_available_tools(
                 auth_token.scopes,

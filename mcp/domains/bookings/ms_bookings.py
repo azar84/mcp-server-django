@@ -538,6 +538,7 @@ class MSBookOnlineMeetingTool(BaseTool):
                 
                 service_data = service_response.json()
                 default_dur_mins = self._iso_duration_to_minutes(service_data.get('defaultDuration')) or 30
+                service_name = service_data.get('displayName', 'AI Booked Meeting')
                 
                 # Calculate duration - use provided value, service default, or 30 minutes
                 duration_minutes = arguments.get('durationMinutes')
@@ -582,7 +583,7 @@ class MSBookOnlineMeetingTool(BaseTool):
                     "reminders@odata.type": "#Collection(microsoft.graph.bookingReminder)",
                     "reminders": arguments.get('reminders', []),
                     "serviceId": service_id,
-                    "serviceName": arguments.get('serviceName', 'Free Consultation with HiQSense'),
+                    "serviceName": arguments.get('serviceName', service_name),
                     "serviceNotes": arguments.get('serviceNotes'),
                     "staffMemberIds": arguments.get('staffMemberIds', staff_ids),
                     "start": {
