@@ -29,6 +29,8 @@ class MCPDomainRegistry:
         # Bookings domain
         bookings_domain = DomainManager("bookings")
         bookings_domain.register_provider(MSBookingsProvider())
+        bookings_domain.register_provider(GoogleCalendarProvider())
+        bookings_domain.register_provider(CalendlyProvider())
         self.domains["bookings"] = bookings_domain
         
         # Other domains are structure only for now

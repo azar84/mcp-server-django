@@ -180,40 +180,58 @@ class OpenAIMCPTransport(View):
             }, status=404)
     
     def _handle_tools_list(self, message_id, auth_token, tenant):
-        """Handle tools/list requests"""
+        """Handle tools/list requests using domain-based tools"""
         try:
-            # Get available tools from protocol handler
-            tools = []
+            # Get available tools from domain registry
+            from .domain_registry import domain_registry
             
-            for tool_name, tool_data in protocol_handler.tools.items():
-                # Check if tenant has required scopes
-                required_scopes = tool_data.get('required_scopes', [])
-                if not set(required_scopes).issubset(set(auth_token.scopes)):
-                    logger.debug(f"Skipping tool {tool_name} - missing scopes. Required: {required_scopes}, Available: {auth_token.scopes}")
-                    continue
-                
-                # Check if tool requires credentials and tenant has them
-                requires_credentials = tool_data.get('requires_credentials', False)
-                if requires_credentials:
-                    # For MS Bookings, check if credentials exist
-                    if 'ms_bookings' in required_scopes:
-                        try:
-                            if not (hasattr(tenant, 'ms_bookings_credential') and 
-                                   tenant.ms_bookings_credential and 
-                                   tenant.ms_bookings_credential.is_active):
-                                logger.debug(f"Skipping tool {tool_name} - missing MS Bookings credentials")
-                                continue
-                        except:
-                            logger.debug(f"Skipping tool {tool_name} - error checking MS Bookings credentials")
-                            continue
-                
+            # Get tenant's available credentials
+            available_credentials = []
+            
+            # Check MS Bookings credentials
+            try:
+                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                    available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
+            except:
+                pass
+            
+            # Check Stripe credentials
+            try:
+                if tenant.stripe_credential and tenant.stripe_credential.is_active:
+                    available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key', 'stripe_webhook_secret'])
+            except:
+                pass
+            
+            # Check Calendly credentials
+            try:
+                if tenant.calendly_credential and tenant.calendly_credential.is_active:
+                    available_credentials.extend(['calendly_api_token'])
+            except:
+                pass
+            
+            # Check Google Calendar credentials
+            try:
+                if tenant.google_calendar_credential and tenant.google_calendar_credential.is_active:
+                    available_credentials.extend(['google_access_token', 'google_refresh_token', 'google_client_id', 'google_client_secret'])
+            except:
+                pass
+            
+            # Get tools available to this tenant from domain registry
+            domain_tools = domain_registry.get_available_tools(
+                auth_token.scopes,
+                available_credentials
+            )
+            
+            # Convert to OpenAI format
+            tools = []
+            for tool in domain_tools:
                 tools.append({
-                    'name': tool_name,
-                    'description': tool_data['description'],
-                    'inputSchema': tool_data['inputSchema']
+                    'name': tool['name'],
+                    'description': tool['description'],
+                    'inputSchema': tool['inputSchema']
                 })
             
-            logger.info(f"Returning {len(tools)} tools for tenant {tenant.name}")
+            logger.info(f"Returning {len(tools)} domain-based tools for tenant {tenant.name}")
             
             return JsonResponse({
                 'jsonrpc': '2.0',
@@ -253,7 +271,7 @@ class OpenAIMCPTransport(View):
         })
     
     def _handle_tools_call(self, message_id, params, auth_token, tenant):
-        """Handle tools/call requests"""
+        """Handle tools/call requests using domain-based tools"""
         try:
             tool_name = params.get('name')
             arguments = params.get('arguments', {})
@@ -268,8 +286,11 @@ class OpenAIMCPTransport(View):
                     }
                 }, status=400)
             
-            # Check if tool exists and tenant has access
-            if tool_name not in protocol_handler.tools:
+            # Get tool from domain registry
+            from .domain_registry import domain_registry
+            tool = domain_registry.get_tool_by_name(tool_name)
+            
+            if not tool:
                 return JsonResponse({
                     'jsonrpc': '2.0',
                     'id': message_id,
@@ -279,20 +300,18 @@ class OpenAIMCPTransport(View):
                     }
                 }, status=404)
             
-            tool_data = protocol_handler.tools[tool_name]
-            required_scopes = tool_data.get('required_scopes', [])
-            
-            if not set(required_scopes).issubset(set(auth_token.scopes)):
+            # Check if tenant has required scopes
+            if not set(tool.required_scopes).issubset(set(auth_token.scopes)):
                 return JsonResponse({
                     'jsonrpc': '2.0',
                     'id': message_id,
                     'error': {
                         'code': -32001,
-                        'message': f'Insufficient scopes for tool {tool_name}'
+                        'message': f'Insufficient scopes for tool {tool_name}. Required: {tool.required_scopes}, Available: {auth_token.scopes}'
                     }
                 }, status=403)
             
-            # Execute tool synchronously for now (OpenAI expects immediate response)
+            # Execute domain-based tool
             try:
                 # Create context for tool execution
                 context = {
@@ -301,8 +320,8 @@ class OpenAIMCPTransport(View):
                     'session_id': f"openai-{message_id}"
                 }
                 
-                # Execute tool
-                result = asyncio.run(tool_data['handler'](arguments, context))
+                # Execute the domain tool (sync for OpenAI compatibility)
+                result = asyncio.run(tool.execute(arguments, context))
                 
                 return JsonResponse({
                     'jsonrpc': '2.0',
