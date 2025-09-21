@@ -8,6 +8,9 @@ This document outlines the domain-based organization structure for the MCP serve
 mcp/
 ├── domains/                    # Domain-based tool organization
 │   ├── base.py                # Base classes for providers and tools
+│   ├── general/               # General Utilities domain
+│   │   ├── generaltools.py    # General tools provider (server status, time, calculator, timezone)
+│   │   └── windows_zones_mapping.py # Local CLDR timezone mapping data
 │   ├── bookings/              # Booking & Scheduling domain
 │   │   ├── calendly.py        # Calendly provider
 │   │   ├── google_calendar.py # Google Calendar provider
@@ -28,6 +31,17 @@ mcp/
 ```
 
 ## Tool Organization
+
+### General Domain
+**Providers**: GeneralToolsProvider
+
+**Tools**:
+- `general_get_server_status` - Server health and connection testing
+- `general_current_time` - Get current server time with multiple formats
+- `general_calculator` - Perform basic mathematical calculations  
+- `general_get_timezone_by_location` - Get both Windows and IANA timezones for cities
+
+**Scopes**: `basic` (except server status which requires no scopes)
 
 ### Bookings Domain
 **Providers**: Calendly, Google Calendar, Microsoft Bookings
@@ -112,11 +126,14 @@ Examples:
 
 ### Scope-based Access
 ```python
+# Tenant with basic general tools access
+scopes = ["basic"]
+
 # Tenant with basic booking access
-scopes = ["booking", "calendly"]
+scopes = ["basic", "booking", "ms_bookings"]
 
 # Tenant with full CRM access  
-scopes = ["crm", "salesforce", "hubspot", "write"]
+scopes = ["basic", "crm", "salesforce", "hubspot", "write"]
 ```
 
 ### Resource Access

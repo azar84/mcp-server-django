@@ -13,14 +13,25 @@ A production-ready **Model Context Protocol (MCP) Server** built with Django, de
 - **WebSocket & HTTP Support** - Full MCP protocol implementation
 
 ### Available Tools
-- **General Tools**
-  - `general_get_server_status` - Server health and connection testing
-- **Booking Tools**
-  - `bookings_get_staff_availability` - Microsoft Bookings staff availability
+- **General Tools** (require `basic` scope)
+  - `general_get_server_status` - Server health and connection testing (no scope required)
+  - `general_current_time` - Get current server time with multiple formats
+  - `general_calculator` - Perform basic mathematical calculations
+  - `general_get_timezone_by_location` - Get both Windows and IANA timezones for any city/location
+- **Booking Tools** (require `booking` + provider scopes)
+  - `bookings_get_staff_availability` - Microsoft Bookings staff availability (requires `ms_bookings` scope)
 
 ### Supported Integrations
 - **Microsoft Bookings** - Staff availability, appointment scheduling
+- **Open-Meteo Geocoding** - City-to-timezone resolution
+- **Unicode CLDR** - Local timezone mapping data (offline)
 - **Extensible Architecture** - Easy to add new providers (Calendly, Google Calendar, etc.)
+
+### Special Features
+- **Saskatchewan Timezone Fix** - Correctly maps Saskatchewan cities to Mountain Standard Time
+- **Local CLDR Mapping** - No external API dependency for timezone conversion
+- **Dual Timezone Format** - Returns both Windows and IANA timezone formats
+- **City Name Parsing** - Handles "City, State" and "City, Country" formats
 
 ## 🏗️ Architecture
 
@@ -115,10 +126,16 @@ curl -X POST https://your-server.herokuapp.com/api/admin/tokens/ \
   -H "Content-Type: application/json" \
   -d '{
     "tenant_id": "your-tenant-id",
-    "scopes": ["booking", "ms_bookings"],
+    "scopes": ["basic", "booking", "ms_bookings"],
     "expires_in_days": 365
   }'
 ```
+
+**Available Scopes:**
+- `basic` - General tools (server status, time, calculator, timezone lookup)
+- `booking` - Booking domain access
+- `ms_bookings` - Microsoft Bookings provider
+- `write` - Write operations (booking appointments, etc.)
 
 ### 3. Use with OpenAI Realtime
 
@@ -138,7 +155,7 @@ response = client.responses.create(
             "X-Tenant-ID": "your-tenant-id"
         }
     }],
-    input="Check server status and get staff availability"
+    input="Check server status, get current time, and find timezone for New York"
 )
 ```
 
@@ -233,6 +250,31 @@ python example_client.py
 
 # Test with authentication
 python authenticated_client_example.py
+```
+
+### Testing Individual Tools
+
+```bash
+# Test server status
+curl -X POST https://your-server.herokuapp.com/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"1","method":"tools/call","params":{"name":"general_get_server_status","arguments":{}}}'
+
+# Test timezone lookup
+curl -X POST https://your-server.herokuapp.com/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"2","method":"tools/call","params":{"name":"general_get_timezone_by_location","arguments":{"query":"Saskatoon"}}}'
+
+# Test calculator
+curl -X POST https://your-server.herokuapp.com/api/mcp/ \
+  -H "Authorization: Bearer your-token" \
+  -H "X-Tenant-ID: your-tenant-id" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":"3","method":"tools/call","params":{"name":"general_calculator","arguments":{"expression":"2+2*3"}}}'
 ```
 
 ## 📈 Scaling

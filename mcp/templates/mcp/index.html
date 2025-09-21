@@ -258,7 +258,7 @@
                 </div>
                 
                 <div class="tool-card">
-                    <h4>general.current_time</h4>
+                    <h4>general_current_time</h4>
                     <p>Get current server time in ISO, timestamp, or human-readable format</p>
                     <p><strong>Required Scopes:</strong></p>
                     <div>
@@ -270,8 +270,8 @@
                 </div>
                 
                 <div class="tool-card">
-                    <h4>general.calculator</h4>
-                    <p>Perform basic mathematical calculations and expressions</p>
+                    <h4>general_calculator</h4>
+                    <p>Perform basic mathematical calculations safely</p>
                     <p><strong>Required Scopes:</strong></p>
                     <div>
                         <span class="scope">basic</span>
@@ -282,38 +282,17 @@
                 </div>
                 
                 <div class="tool-card">
-                    <h4>general.system_info</h4>
-                    <p>Get server system information including platform, memory, and CPU details</p>
+                    <h4>general_get_timezone_by_location</h4>
+                    <p>Get both Windows and IANA timezones for any city or location worldwide</p>
                     <p><strong>Required Scopes:</strong></p>
                     <div>
-                        <span class="scope">admin</span>
+                        <span class="scope">basic</span>
                     </div>
                     <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
-                        Request token with: <code>["admin"]</code>
+                        Request token with: <code>["basic"]</code>
                     </p>
-                </div>
-                
-                <div class="tool-card">
-                    <h4>general.file_operations</h4>
-                    <p>Perform tenant-isolated file operations (read, write, list, exists)</p>
-                    <p><strong>Required Scopes:</strong></p>
-                    <div>
-                        <span class="scope">files</span>
-                    </div>
-                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
-                        Request token with: <code>["files"]</code>
-                    </p>
-                </div>
-                
-                <div class="tool-card">
-                    <h4>general.web_request</h4>
-                    <p>Make HTTP requests with optional tenant-specific credentials</p>
-                    <p><strong>Required Scopes:</strong></p>
-                    <div>
-                        <span class="scope">web</span>
-                    </div>
-                    <p style="font-size: 0.875rem; margin-top: 1rem; color: #9ca3af;">
-                        Request token with: <code>["web"]</code>
+                    <p style="font-size: 0.875rem; margin-top: 0.5rem; color: #10b981;">
+                        <strong>Special:</strong> Saskatchewan cities correctly return Mountain Standard Time
                     </p>
                 </div>
             </div>
@@ -432,10 +411,7 @@ response = client.responses.create(
                 <div class="tool-card">
                     <h4>Domain Scopes</h4>
                     <p><span class="scope">booking</span> Booking & scheduling functionality</p>
-                    <p><span class="scope">basic</span> Basic utility operations</p>
-                    <p><span class="scope">admin</span> Administrative system access</p>
-                    <p><span class="scope">files</span> File system operations</p>
-                    <p><span class="scope">web</span> HTTP request capabilities</p>
+                    <p><span class="scope">basic</span> Basic utility operations (time, calculator, timezone)</p>
                 </div>
                 
                 <div class="tool-card">
