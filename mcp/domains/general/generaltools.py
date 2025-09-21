@@ -128,6 +128,24 @@ class GeneralToolsProvider(BaseProvider):
                     'required': ['url']
                 },
                 'required_scopes': ['web']
+            },
+            {
+                'name': 'get_timezone_by_location',
+                'tool_class': TimezoneLookupTool,
+                'description': 'Get Windows and IANA time zones for a geographic location (city, country, etc.)',
+                'input_schema': {
+                    'type': 'object',
+                    'properties': {
+                        'query': {
+                            'type': 'string',
+                            'description': 'Location to lookup (city name, "City, Country", etc.)',
+                            'examples': ['Saskatoon', 'New York', 'London, UK', 'Tokyo, Japan']
+                        }
+                    },
+                    'required': ['query'],
+                    'additionalProperties': False
+                },
+                'required_scopes': ['basic']
             }
         ]
     
@@ -340,3 +358,117 @@ class WebRequestTool(BaseTool):
         
         except Exception as e:
             return f"Error making request: {str(e)}"
+
+
+class TimezoneLookupTool(BaseTool):
+    """Get Windows and IANA time zones for a geographic location"""
+    
+    def _coalesce_city(self, input_str):
+        """Extract city name from various input formats"""
+        if not input_str or not isinstance(input_str, str):
+            return None
+        
+        s = input_str.strip()
+        if not s:
+            return None
+        
+        # Try to parse as JSON first
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                return (obj.get('city') or obj.get('name') or 
+                       obj.get('town') or obj.get('locality') or 
+                       obj.get('place') or None)
+        except:
+            pass
+        
+        # Handle city names with state abbreviations (e.g., "Seattle, WA" -> "Seattle")
+        if ',' in s:
+            # Split by comma and take the first part (city name)
+            city_part = s.split(',')[0].strip()
+            return city_part
+        
+        # Return as string if not JSON and no comma
+        return s
+    
+    async def _geocode_city(self, city):
+        """Fetch IANA timezone and country code by city"""
+        import httpx
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={
+                    'name': city,
+                    'count': 1,
+                    'language': 'en',
+                    'format': 'json'
+                },
+                timeout=10
+            )
+            
+            if response.status_code != 200:
+                return {'iana': None, 'countryCode': None}
+            
+            data = response.json()
+            hit = data.get('results', [{}])[0] if data.get('results') else {}
+            
+            return {
+                'iana': hit.get('timezone'),
+                'countryCode': hit.get('country_code')
+            }
+    
+    def _pick_windows_tz(self, iana, country_code):
+        """Convert IANA timezone to Windows timezone using local mapping"""
+        from .windows_zones_mapping import get_windows_timezone
+        return get_windows_timezone(iana, country_code)
+    
+    async def _execute_with_credentials(self, arguments: Dict[str, Any], 
+                                      credentials: Dict[str, str], 
+                                      context: Dict[str, Any]) -> Any:
+        try:
+            # Extract city from input
+            query = arguments.get('query', '')
+            city = self._coalesce_city(query)
+            
+            if not city:
+                return {
+                    'error': True,
+                    'message': 'CITY_NOT_PROVIDED',
+                    'windows_timezone': None,
+                    'iana_timezone': None
+                }
+            
+            # Geocode to get IANA timezone and country code
+            geocode_result = await self._geocode_city(city)
+            iana = geocode_result['iana']
+            country_code = geocode_result['countryCode']
+            
+            if not iana:
+                return {
+                    'error': True,
+                    'message': 'CITY_NOT_FOUND',
+                    'windows_timezone': None,
+                    'iana_timezone': None,
+                    'searched_city': city
+                }
+            
+            # Get Windows timezone using local mapping
+            windows_tz = self._pick_windows_tz(iana, country_code)
+            
+            return {
+                'error': False,
+                'message': 'SUCCESS',
+                'searched_city': city,
+                'iana_timezone': iana,
+                'windows_timezone': windows_tz,
+                'country_code': country_code
+            }
+            
+        except Exception as e:
+            return {
+                'error': True,
+                'message': f'LOOKUP_FAILED: {str(e)}',
+                'windows_timezone': None,
+                'iana_timezone': None
+            }

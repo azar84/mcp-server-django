@@ -113,12 +113,46 @@ class MCPProtocolHandler:
             }
         }
     
-    async def _handle_list_tools(self, message: MCPMessage, auth_token=None) -> Dict[str, Any]:
+    async def _handle_list_tools(self, message: MCPMessage, auth_token=None, tenant=None) -> Dict[str, Any]:
         """Handle tools/list request with scope filtering"""
         from .auth import mcp_authenticator
+        from .domain_registry import domain_registry
         
         tools = []
+        
+        # Get tenant scopes
+        tenant_scopes = auth_token.scopes if auth_token else []
+        
+        # Get available credentials for domain-based tools
+        available_credentials = []
+        if tenant:
+            try:
+                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                    available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
+            except:
+                pass
+            
+            try:
+                if tenant.stripe_credential and tenant.stripe_credential.is_active:
+                    available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key'])
+            except:
+                pass
+        
+        # Get tools from domain registry (includes the new timezone tool)
+        domain_tools = domain_registry.get_available_tools(tenant_scopes, available_credentials)
+        for tool_data in domain_tools:
+            tools.append({
+                "name": tool_data['name'],
+                "description": tool_data['description'],
+                "inputSchema": tool_data['inputSchema']
+            })
+        
+        # Add legacy tools from protocol handler for backward compatibility
         for name, tool_data in self.tools.items():
+            # Skip if this tool is already included from domains
+            if any(t['name'] == name for t in tools):
+                continue
+                
             # Check if user has required scopes for this tool
             if auth_token:
                 required_scopes = tool_data.get('required_scopes', [])

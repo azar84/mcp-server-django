@@ -53,6 +53,54 @@ async def connection_test_tool(arguments: Dict[str, Any], context: Dict[str, Any
     }, indent=2)
 
 
+async def current_time_tool(arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
+    """Get current server time"""
+    from .domains.general.generaltools import GeneralToolsProvider, CurrentTimeTool
+    
+    provider = GeneralToolsProvider()
+    tool = CurrentTimeTool(
+        name="current_time",
+        provider=provider,
+        description="Get current server time",
+        input_schema={}
+    )
+    
+    result = await tool._execute_with_credentials(arguments, {}, context)
+    return json.dumps(result) if not isinstance(result, str) else result
+
+
+async def calculator_tool(arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
+    """Perform basic mathematical calculations"""
+    from .domains.general.generaltools import GeneralToolsProvider, CalculatorTool
+    
+    provider = GeneralToolsProvider()
+    tool = CalculatorTool(
+        name="calculator",
+        provider=provider,
+        description="Perform basic mathematical calculations",
+        input_schema={}
+    )
+    
+    result = await tool._execute_with_credentials(arguments, {}, context)
+    return json.dumps(result) if not isinstance(result, str) else result
+
+
+async def timezone_lookup_tool(arguments: Dict[str, Any], context: Dict[str, Any]) -> str:
+    """Get Windows and IANA time zones for a geographic location"""
+    from .domains.general.generaltools import GeneralToolsProvider, TimezoneLookupTool
+    
+    provider = GeneralToolsProvider()
+    tool = TimezoneLookupTool(
+        name="get_timezone_by_location",
+        provider=provider,
+        description="Get Windows and IANA time zones for a geographic location",
+        input_schema={}
+    )
+    
+    result = await tool._execute_with_credentials(arguments, {}, context)
+    return json.dumps(result) if not isinstance(result, str) else result
+
+
 def register_default_tools():
     """Register tools with the protocol handler"""
     
@@ -102,4 +150,63 @@ def register_default_tools():
         handler=ms_bookings_get_staff_availability_tool,
         required_scopes=["booking", "ms_bookings"],
         requires_credentials=True
+    )
+    
+    # Current time tool
+    protocol_handler.register_tool(
+        name="general_current_time",
+        description="Get the current server time",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["iso", "timestamp", "human"],
+                    "description": "Time format to return"
+                }
+            }
+        },
+        handler=current_time_tool,
+        required_scopes=["basic"],
+        requires_credentials=False
+    )
+    
+    # Calculator tool
+    protocol_handler.register_tool(
+        name="general_calculator",
+        description="Perform basic mathematical calculations",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "expression": {
+                    "type": "string",
+                    "description": "Mathematical expression to evaluate"
+                }
+            },
+            "required": ["expression"]
+        },
+        handler=calculator_tool,
+        required_scopes=["basic"],
+        requires_credentials=False
+    )
+    
+    # Timezone lookup tool
+    protocol_handler.register_tool(
+        name="general_get_timezone_by_location",
+        description="Get Windows and IANA time zones for a geographic location (city, country, etc.)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Location to lookup (city name, \"City, Country\", etc.)",
+                    "examples": ["Saskatoon", "New York", "London, UK", "Tokyo, Japan"]
+                }
+            },
+            "required": ["query"],
+            "additionalProperties": False
+        },
+        handler=timezone_lookup_tool,
+        required_scopes=["basic"],
+        requires_credentials=False
     )
