@@ -39,10 +39,6 @@ class TwilioProvider(BaseProvider):
                             'type': 'string',
                             'description': 'SMS message content (max 1600 characters)',
                             'maxLength': 1600
-                        },
-                        'from': {
-                            'type': 'string',
-                            'description': 'Sender phone number (optional, uses tenant default if not provided)'
                         }
                     },
                     'required': ['to', 'message']
@@ -154,7 +150,7 @@ class TwilioSendSMSTool(BaseTool):
             # Extract and validate arguments
             to_number = arguments.get('to')
             message_text = arguments.get('message')
-            from_number = arguments.get('from') or config['phone_number']
+            from_number = config['phone_number']  # Always use tenant's Twilio phone number
             
             if not to_number or not message_text:
                 return 'ERROR: Both "to" and "message" are required'

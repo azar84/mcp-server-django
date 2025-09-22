@@ -4,7 +4,7 @@ from django.urls import reverse
 from django.utils.safestring import mark_safe
 from .models import (
     Tenant, AuthToken, MCPSession, MCPTool, MCPToolCall, ClientCredential,
-    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential, TwilioCredential
+    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential, TwilioCredential, TenantResource
 )
 from .admin_config import mcp_admin_site
 
@@ -426,6 +426,48 @@ class TwilioCredentialAdmin(admin.ModelAdmin):
         if 'auth_token' in form.base_fields:
             form.base_fields['auth_token'].widget.attrs['type'] = 'password'
         return form
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('tenant')
+
+
+@admin.register(TenantResource)
+class TenantResourceAdmin(admin.ModelAdmin):
+    list_display = ('name', 'tenant', 'resource_type', 'uri_preview', 'tags_display', 'is_active', 'updated_at')
+    list_filter = ('resource_type', 'is_active', 'created_at', 'updated_at')
+    search_fields = ('name', 'tenant__name', 'description', 'resource_uri')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('tenant', 'name', 'description')
+        }),
+        ('Resource Configuration', {
+            'fields': ('resource_type', 'resource_uri'),
+            'description': 'Configure the resource type and OneDrive share link or URL'
+        }),
+        ('Organization', {
+            'fields': ('tags',),
+            'description': 'Tags for categorizing and organizing resources'
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def tags_display(self, obj):
+        """Display tags as colored badges"""
+        if obj.tags:
+            tags_html = []
+            for tag in obj.tags:
+                tags_html.append(f'<span style="background-color: #e1f5fe; padding: 2px 6px; border-radius: 3px; margin: 1px;">{tag}</span>')
+            return mark_safe(' '.join(tags_html))
+        return 'No tags'
+    tags_display.short_description = 'Tags'
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('tenant')

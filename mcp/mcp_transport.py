@@ -198,6 +198,124 @@ class MCPStreamableHTTPView(View):
             content_type='application/json'
         )
     
+    def _handle_resources_list(self, message_id, auth_token, tenant):
+        """Handle resources/list method and return response data"""
+        if not tenant:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32403,
+                    'message': 'Authentication required for resource access'
+                }
+            }
+        
+        try:
+            import asyncio
+            from .resources.onedrive import onedrive_resource
+            
+            # Get tenant's resources synchronously (for streaming response)
+            resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'result': {
+                    'resources': resources
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32603,
+                    'message': f'Error listing resources: {str(e)}'
+                }
+            }
+    
+    def _handle_resources_read(self, message_id, params, auth_token, tenant):
+        """Handle resources/read method and return response data"""
+        if not tenant:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32403,
+                    'message': 'Authentication required for resource access'
+                }
+            }
+        
+        if not params or 'uri' not in params:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32602,
+                    'message': 'Missing uri parameter'
+                }
+            }
+        
+        resource_uri = params['uri']
+        
+        try:
+            import asyncio
+            from .resources.onedrive import onedrive_resource
+            from .resources.knowledge_base import kb_resource
+            
+            # Try OneDrive/tenant resources first
+            if onedrive_resource.can_handle(resource_uri):
+                resource_data = asyncio.run(onedrive_resource.resolve_resource(resource_uri, tenant, auth_token))
+            else:
+                # Fallback to knowledge base resources (global)
+                resource_data = kb_resource.resolve_resource(resource_uri)
+            
+            if resource_data is None:
+                return {
+                    'jsonrpc': '2.0',
+                    'id': message_id,
+                    'error': {
+                        'code': -32602,
+                        'message': f'Resource not found: {resource_uri}'
+                    }
+                }
+            
+            # Handle error responses from resource handlers
+            if 'error' in resource_data:
+                return {
+                    'jsonrpc': '2.0',
+                    'id': message_id,
+                    'error': {
+                        'code': -32602,
+                        'message': resource_data['error']
+                    }
+                }
+            
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'result': {
+                    'contents': [
+                        {
+                            'uri': resource_data.get('uri', resource_uri),
+                            'mimeType': resource_data.get('mime_type', 'text/plain'),
+                            'text': resource_data.get('content', '')
+                        }
+                    ]
+                }
+            }
+            
+        except Exception as e:
+            return {
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32603,
+                    'message': f'Error reading resource: {str(e)}'
+                }
+            }
+    
     def _process_single_request(self, message_data, auth_token, tenant, request):
         """Process a single MCP request and return the response data"""
         method = message_data.get('method')
@@ -210,6 +328,11 @@ class MCPStreamableHTTPView(View):
         elif method == 'tools/call':
             params = message_data.get('params', {})
             return self._handle_tools_call(message_id, params, auth_token, tenant)
+        elif method == 'resources/list':
+            return self._handle_resources_list(message_id, auth_token, tenant)
+        elif method == 'resources/read':
+            params = message_data.get('params', {})
+            return self._handle_resources_read(message_id, params, auth_token, tenant)
         else:
             return {
                 'jsonrpc': '2.0',

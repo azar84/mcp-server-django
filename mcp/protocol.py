@@ -76,6 +76,10 @@ class MCPProtocolHandler:
                 return await self._handle_list_tools(message, auth_token)
             elif message.method == "tools/call":
                 return await self._handle_call_tool(message, session_id, auth_token, tenant)
+            elif message.method == "resources/list":
+                return await self._handle_list_resources(message, auth_token, tenant)
+            elif message.method == "resources/read":
+                return await self._handle_read_resource(message, auth_token, tenant)
             else:
                 return self._create_error_response(
                     message.id, -32601, f"Method not found: {message.method}"
@@ -108,7 +112,8 @@ class MCPProtocolHandler:
                 "protocolVersion": "2024-11-05",
                 "serverInfo": server_info.dict(),
                 "capabilities": {
-                    "tools": {}
+                    "tools": {},
+                    "resources": {}
                 }
             }
         }
@@ -184,10 +189,91 @@ class MCPProtocolHandler:
         tool_name = message.params.get('name')
         arguments = message.params.get('arguments', {})
         
-        if tool_name not in self.tools:
+        # Check if tool exists in legacy tools first
+        if tool_name in self.tools:
+            # Handle legacy tool
+            return await self._handle_legacy_tool(message, tool_name, arguments, session_id, auth_token, tenant)
+        
+        # Check domain registry for the tool
+        from .domain_registry import domain_registry
+        
+        # Get tenant scopes and credentials for domain tool lookup
+        tenant_scopes = auth_token.scopes if auth_token else []
+        available_credentials = []
+        if tenant:
+            # Add available credentials (same logic as in _handle_list_tools)
+            try:
+                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                    available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
+            except:
+                pass
+            try:
+                if tenant.stripe_credential and tenant.stripe_credential.is_active:
+                    available_credentials.extend(['stripe_secret_key', 'stripe_publishable_key'])
+            except:
+                pass
+            try:
+                if tenant.calendly_credential and tenant.calendly_credential.is_active:
+                    available_credentials.extend(['calendly_access_token'])
+            except:
+                pass
+            try:
+                if tenant.google_calendar_credential and tenant.google_calendar_credential.is_active:
+                    available_credentials.extend(['google_access_token', 'google_refresh_token', 'google_client_id', 'google_client_secret'])
+            except:
+                pass
+            try:
+                if tenant.twilio_credential and tenant.twilio_credential.is_active:
+                    available_credentials.extend(['twilio_account_sid', 'twilio_auth_token', 'twilio_phone_number'])
+            except:
+                pass
+        
+        # Try to find the tool in domain registry
+        tool = domain_registry.get_tool_by_name(tool_name)
+        if not tool:
             return self._create_error_response(
                 message.id, -32602, f"Tool not found: {tool_name}"
             )
+        
+        # Check scope permissions for domain tool
+        if auth_token:
+            from .auth import mcp_authenticator
+            if not mcp_authenticator.check_scope_permission(auth_token, tool.required_scopes):
+                return self._create_error_response(
+                    message.id, -32403, f"Insufficient permissions for tool: {tool_name}"
+                )
+        
+        # Execute domain tool
+        try:
+            context = {
+                'session_id': session_id,
+                'tenant': tenant,
+                'auth_token': auth_token
+            }
+            
+            result = await tool.execute(arguments, context)
+            
+            return {
+                "jsonrpc": "2.0",
+                "id": message.id,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": str(result)
+                        }
+                    ]
+                }
+            }
+            
+        except Exception as e:
+            return self._create_error_response(
+                message.id, -32603, f"Domain tool execution error: {str(e)}"
+            )
+    
+    async def _handle_legacy_tool(self, message: MCPMessage, tool_name: str, arguments: Dict[str, Any], 
+                                session_id: str, auth_token=None, tenant=None) -> Dict[str, Any]:
+        """Handle legacy tool execution"""
         
         # Check scope permissions
         if auth_token:
@@ -231,7 +317,88 @@ class MCPProtocolHandler:
             
         except Exception as e:
             return self._create_error_response(
-                message.id, -32603, f"Tool execution error: {str(e)}"
+                message.id, -32603, f"Legacy tool execution error: {str(e)}"
+            )
+    
+    async def _handle_list_resources(self, message: MCPMessage, auth_token=None, tenant=None) -> Dict[str, Any]:
+        """Handle resources/list request - list tenant-specific resources"""
+        if not tenant:
+            return self._create_error_response(
+                message.id, -32403, "Authentication required for resource access"
+            )
+        
+        try:
+            from .resources.onedrive import onedrive_resource
+            
+            # Get tenant's resources
+            resources = await onedrive_resource.list_resources(tenant)
+            
+            return {
+                "jsonrpc": "2.0",
+                "id": message.id,
+                "result": {
+                    "resources": resources
+                }
+            }
+            
+        except Exception as e:
+            return self._create_error_response(
+                message.id, -32603, f"Error listing resources: {str(e)}"
+            )
+    
+    async def _handle_read_resource(self, message: MCPMessage, auth_token=None, tenant=None) -> Dict[str, Any]:
+        """Handle resources/read request - read specific tenant resource"""
+        if not tenant:
+            return self._create_error_response(
+                message.id, -32403, "Authentication required for resource access"
+            )
+        
+        if not message.params or 'uri' not in message.params:
+            return self._create_error_response(
+                message.id, -32602, "Missing 'uri' parameter"
+            )
+        
+        resource_uri = message.params['uri']
+        
+        try:
+            from .resources.onedrive import onedrive_resource
+            from .resources.knowledge_base import kb_resource
+            
+            # Try OneDrive/tenant resources first
+            if onedrive_resource.can_handle(resource_uri):
+                resource_data = await onedrive_resource.resolve_resource(resource_uri, tenant, auth_token)
+            else:
+                # Fallback to knowledge base resources (global)
+                resource_data = kb_resource.resolve_resource(resource_uri)
+            
+            if resource_data is None:
+                return self._create_error_response(
+                    message.id, -32602, f"Resource not found: {resource_uri}"
+                )
+            
+            # Handle error responses from resource handlers
+            if 'error' in resource_data:
+                return self._create_error_response(
+                    message.id, -32602, resource_data['error']
+                )
+            
+            return {
+                "jsonrpc": "2.0",
+                "id": message.id,
+                "result": {
+                    "contents": [
+                        {
+                            "uri": resource_data.get('uri', resource_uri),
+                            "mimeType": resource_data.get('mime_type', 'text/plain'),
+                            "text": resource_data.get('content', '')
+                        }
+                    ]
+                }
+            }
+            
+        except Exception as e:
+            return self._create_error_response(
+                message.id, -32603, f"Error reading resource: {str(e)}"
             )
     
     def _create_error_response(self, message_id: Optional[str], code: int, message: str) -> Dict[str, Any]:

@@ -10,6 +10,7 @@ from .domains.crm import SalesforceProvider, HubSpotProvider, PipedriveProvider
 from .domains.payments import StripeProvider, PayPalProvider
 from .domains.email import SendGridProvider, MailgunProvider
 from .domains.voice_sms import TwilioProvider
+from .domains.resources.resource_access import ResourceAccessProvider
 
 
 class MCPDomainRegistry:
@@ -38,6 +39,11 @@ class MCPDomainRegistry:
         voice_sms_domain = DomainManager("voice_sms")
         voice_sms_domain.register_provider(TwilioProvider())
         self.domains["voice_sms"] = voice_sms_domain
+        
+        # Resources domain  
+        resources_domain = DomainManager("resources")
+        resources_domain.register_provider(ResourceAccessProvider())
+        self.domains["resources"] = resources_domain
         
         # Other domains are structure only for now
         # They will be activated when tools are fully implemented

@@ -16,6 +16,7 @@ class ProviderType(Enum):
     EMAIL = "email"
     COMMUNICATION = "communication"
     VOICE_SMS = "voice_sms"
+    RESOURCES = "resources"
 
 
 class BaseProvider(ABC):

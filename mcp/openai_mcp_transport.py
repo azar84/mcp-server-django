@@ -169,6 +169,12 @@ class OpenAIMCPTransport(View):
             # Handle tool calls asynchronously
             return self._handle_tools_call(message_id, params, auth_token, tenant)
         
+        elif method == 'resources/list':
+            return self._handle_resources_list(message_id, auth_token, tenant)
+        
+        elif method == 'resources/read':
+            return self._handle_resources_read(message_id, params, auth_token, tenant)
+        
         else:
             return JsonResponse({
                 'jsonrpc': '2.0',
@@ -364,6 +370,126 @@ class OpenAIMCPTransport(View):
                     'message': f'Error calling tool: {str(e)}'
                 }
             }, status=500)
+    
+    def _handle_resources_list(self, message_id, auth_token, tenant):
+        """Handle resources/list method"""
+        if not tenant:
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32403,
+                    'message': 'Authentication required for resource access'
+                }
+            })
+        
+        try:
+            import asyncio
+            from .resources.onedrive import onedrive_resource
+            
+            # Get tenant's resources
+            resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'result': {
+                    'resources': resources
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error listing resources for tenant {tenant.name}: {str(e)}")
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32603,
+                    'message': f'Error listing resources: {str(e)}'
+                }
+            })
+    
+    def _handle_resources_read(self, message_id, params, auth_token, tenant):
+        """Handle resources/read method"""
+        if not tenant:
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32403,
+                    'message': 'Authentication required for resource access'
+                }
+            })
+        
+        if not params or 'uri' not in params:
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32602,
+                    'message': 'Missing uri parameter'
+                }
+            })
+        
+        resource_uri = params['uri']
+        
+        try:
+            import asyncio
+            from .resources.onedrive import onedrive_resource
+            from .resources.knowledge_base import kb_resource
+            
+            # Try OneDrive/tenant resources first
+            if onedrive_resource.can_handle(resource_uri):
+                resource_data = asyncio.run(onedrive_resource.resolve_resource(resource_uri, tenant, auth_token))
+            else:
+                # Fallback to knowledge base resources (global)
+                resource_data = kb_resource.resolve_resource(resource_uri)
+            
+            if resource_data is None:
+                return JsonResponse({
+                    'jsonrpc': '2.0',
+                    'id': message_id,
+                    'error': {
+                        'code': -32602,
+                        'message': f'Resource not found: {resource_uri}'
+                    }
+                })
+            
+            # Handle error responses from resource handlers
+            if 'error' in resource_data:
+                return JsonResponse({
+                    'jsonrpc': '2.0',
+                    'id': message_id,
+                    'error': {
+                        'code': -32602,
+                        'message': resource_data['error']
+                    }
+                })
+            
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'result': {
+                    'contents': [
+                        {
+                            'uri': resource_data.get('uri', resource_uri),
+                            'mimeType': resource_data.get('mime_type', 'text/plain'),
+                            'text': resource_data.get('content', '')
+                        }
+                    ]
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error reading resource {resource_uri} for tenant {tenant.name}: {str(e)}")
+            return JsonResponse({
+                'jsonrpc': '2.0',
+                'id': message_id,
+                'error': {
+                    'code': -32603,
+                    'message': f'Error reading resource: {str(e)}'
+                }
+            })
 
 
 @method_decorator(csrf_exempt, name='dispatch')

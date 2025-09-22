@@ -342,3 +342,58 @@ class TwilioCredential(models.Model):
     def account_sid_preview(self):
         """Show only first 8 characters of account SID"""
         return f"{self.account_sid[:8]}..." if self.account_sid else "Not set"
+
+
+class TenantResource(models.Model):
+    """Tenant-specific resources (files, documents, etc.)"""
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name='resources'
+    )
+    name = models.CharField(
+        max_length=255,
+        help_text="Resource name/title"
+    )
+    resource_type = models.CharField(
+        max_length=50,
+        choices=[
+            ('onedrive', 'OneDrive File'),
+            ('sharepoint', 'SharePoint Document'),
+            ('googledrive', 'Google Drive File'),
+            ('url', 'Web URL'),
+            ('text', 'Text Content')
+        ],
+        default='onedrive'
+    )
+    resource_uri = models.URLField(
+        max_length=1000,
+        help_text="OneDrive share link, URL, or resource identifier"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Description of the resource content"
+    )
+    tags = models.JSONField(
+        default=list,
+        help_text="Tags for categorizing resources (e.g., ['faq', 'documentation', 'policies'])"
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Tenant Resource"
+        verbose_name_plural = "Tenant Resources"
+        db_table = 'mcp_tenant_resources'
+        unique_together = ['tenant', 'name']  # Unique resource names per tenant
+    
+    def __str__(self):
+        return f"{self.name} ({self.tenant.name})"
+    
+    @property
+    def uri_preview(self):
+        """Show shortened URI for admin display"""
+        if len(self.resource_uri) > 50:
+            return f"{self.resource_uri[:47]}..."
+        return self.resource_uri
