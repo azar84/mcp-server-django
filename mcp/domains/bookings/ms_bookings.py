@@ -617,9 +617,9 @@ class MSBookOnlineMeetingTool(BaseTool):
         return f"{date_part}T{self._pad(int(hh))}:{self._pad(int(mm))}:{self._pad(int(ss))}.0000000+00:00"
     
     async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
-        """Execute the booking tool with credentials retrieved at top level (same as availability tool)"""
+        """Execute the booking tool with credentials retrieved at top level (EXACT COPY of availability tool)"""
         try:
-            # Get MS Bookings credentials at the top level to avoid threading issues (same as availability tool)
+            # Get MS Bookings credentials at the top level to avoid threading issues
             tenant = context.get('tenant')
             if not tenant:
                 return json.dumps({
@@ -636,7 +636,7 @@ class MSBookOnlineMeetingTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials synchronously (bypass all async handling) - same as availability tool
+            # Retrieve MS Bookings credentials synchronously (bypass all async handling)
             from ...models import MSBookingsCredential
             
             try:
@@ -660,7 +660,7 @@ class MSBookOnlineMeetingTool(BaseTool):
                     }
                 })
             
-            # Add MS Bookings credentials to context for use in _execute_with_credentials - same as availability tool
+            # Add MS Bookings credentials to context for use in _execute_with_credentials
             context['ms_bookings_credential'] = ms_cred
             
             # Get provider-specific credentials from context
@@ -672,6 +672,7 @@ class MSBookOnlineMeetingTool(BaseTool):
                 if cred_key in credentials:
                     provider_credentials[key] = credentials[cred_key]
             
+            # Execute with credentials
             return await self._execute_with_credentials(arguments, provider_credentials, context)
             
         except Exception as e:
