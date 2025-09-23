@@ -19,14 +19,44 @@ CSRF_TRUSTED_ORIGINS = [
     'https://*.herokuapp.com',
 ]
 
-# Database configuration for Heroku PostgreSQL
-DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///db.sqlite3',
-        conn_max_age=600,
-        conn_health_checks=True
-    )
-}
+# Database configuration for Heroku PostgreSQL with connection pooling
+import dj_database_url
+
+# Get database URL from environment
+DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
+
+if DATABASE_URL.startswith('postgres://'):
+    # Use connection pooling for PostgreSQL
+    DATABASES = {
+        'default': dj_database_url.config(
+            default=DATABASE_URL,
+            conn_max_age=0,  # Disable persistent connections
+            conn_health_checks=True,
+            # Connection pooling settings optimized for Heroku
+            options={
+                'MAX_CONNS': 1,  # Maximum connections per dyno
+                'MIN_CONNS': 0,  # No minimum connections
+                'INITIAL_CONNS': 0,  # No initial connections
+                'MAX_IDLE': 0,   # No idle connections
+                'MAX_USAGE': 100,  # Max queries per connection before recycling
+                'BLOCK': True,   # Block when pool is exhausted
+                'RESET_QUERIES': True,  # Reset queries on connection reuse
+            }
+        )
+    }
+    
+    # Additional database optimization settings
+    DATABASE_CONNECTION_POOL_SIZE = 1  # Limit connection pool size
+    DATABASE_CONNECTION_MAX_AGE = 0    # Don't reuse connections
+else:
+    # Fallback to default configuration for SQLite
+    DATABASES = {
+        'default': dj_database_url.config(
+            default='sqlite:///db.sqlite3',
+            conn_max_age=600,
+            conn_health_checks=True
+        )
+    }
 
 # Static files configuration
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -34,6 +64,8 @@ STATIC_URL = '/static/'
 
 # Whitenoise for static file serving
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+# Database connection monitoring
+MIDDLEWARE.insert(2, 'mcp.db_monitoring.DatabaseConnectionMonitoringMiddleware')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Channels configuration for Heroku
@@ -62,13 +94,24 @@ if not MCP_ENCRYPTION_KEY:
     print(f"Generated MCP_ENCRYPTION_KEY: {MCP_ENCRYPTION_KEY}")
     print("Set this as a Heroku config var: heroku config:set MCP_ENCRYPTION_KEY='{MCP_ENCRYPTION_KEY}'")
 
-# Logging configuration
+# Logging configuration with database connection monitoring
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
         },
     },
     'root': {
@@ -77,6 +120,21 @@ LOGGING = {
     },
     'loggers': {
         'django': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.db.backends': {
+            'handlers': ['console'],
+            'level': 'WARNING',  # Only log database warnings and errors
+            'propagate': False,
+        },
+        'psycopg2': {
+            'handlers': ['console'],
+            'level': 'WARNING',
+            'propagate': False,
+        },
+        'mcp': {
             'handlers': ['console'],
             'level': 'INFO',
             'propagate': False,
