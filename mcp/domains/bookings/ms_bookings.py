@@ -616,6 +616,75 @@ class MSBookOnlineMeetingTool(BaseTool):
         hh, mm, ss = time_part.split(":")
         return f"{date_part}T{self._pad(int(hh))}:{self._pad(int(mm))}:{self._pad(int(ss))}.0000000+00:00"
     
+    async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
+        """Execute the booking tool with credentials retrieved at top level (same as availability tool)"""
+        try:
+            # Get MS Bookings credentials at the top level to avoid threading issues (same as availability tool)
+            tenant = context.get('tenant')
+            if not tenant:
+                return json.dumps({
+                    'error': True,
+                    'message': 'No tenant found in context',
+                    'error_type': 'missing_context',
+                    'suggestions': [
+                        'Ensure the request includes proper tenant authentication',
+                        'Check if the authentication token is valid'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_context': 'tenant'
+                    }
+                })
+            
+            # Retrieve MS Bookings credentials synchronously (bypass all async handling) - same as availability tool
+            from ...models import MSBookingsCredential
+            
+            try:
+                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
+                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+            except MSBookingsCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS Bookings credentials for this tenant',
+                        'Ensure azure_tenant_id, client_id, and client_secret are set',
+                        'Activate the MS Bookings credential configuration'
+                    ],
+                    'status': None,
+                    'details': {
+                        'tenant_id': tenant.tenant_id,
+                        'tenant_name': tenant.name,
+                        'missing_credentials': 'MS Bookings'
+                    }
+                })
+            
+            # Add MS Bookings credentials to context for use in _execute_with_credentials - same as availability tool
+            context['ms_bookings_credential'] = ms_cred
+            
+            # Get provider-specific credentials from context
+            credentials = context.get('credentials', {})
+            provider_credentials = {}
+            
+            for key in self.provider.get_required_credentials():
+                cred_key = f"{self.provider.name}_{key}"
+                if cred_key in credentials:
+                    provider_credentials[key] = credentials[cred_key]
+            
+            return await self._execute_with_credentials(arguments, provider_credentials, context)
+            
+        except Exception as e:
+            return json.dumps({
+                'error': True,
+                'message': f'Error executing booking tool: {str(e)}',
+                'error_type': 'execution_error',
+                'details': {
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                }
+            })
+
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                       credentials: Dict[str, str], 
                                       context: Dict[str, Any]) -> Any:
