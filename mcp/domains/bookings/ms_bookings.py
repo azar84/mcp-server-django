@@ -136,8 +136,6 @@ class MSBookingsProvider(BaseProvider):
     
     async def get_access_token(self, tenant, ms_cred) -> str:
         """Get access token using tenant's MS Bookings credentials"""
-        from ...auth import mcp_authenticator
-        
         if not tenant:
             raise Exception('No tenant provided')
         
@@ -256,11 +254,11 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials using sync_to_async (even execute() runs in async context)
+            # Retrieve MS Bookings credentials using database_sync_to_async (Heroku PostgreSQL compatible)
             from ...models import MSBookingsCredential
-            from asgiref.sync import sync_to_async
+            from channels.db import database_sync_to_async
             
-            @sync_to_async
+            @database_sync_to_async
             def get_ms_bookings_credential(tenant):
                 return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
             
