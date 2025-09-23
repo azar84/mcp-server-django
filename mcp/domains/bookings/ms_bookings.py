@@ -26,7 +26,7 @@ class MSBookingsProvider(BaseProvider):
             {
                 'name': 'get_staff_availability',
                 'tool_class': MSGetStaffAvailabilityTool,
-                'description': 'Get staff availability from Microsoft Bookings for a 7-day window',
+                'description': 'Get staff availability from Microsoft Bookings for a 7-day window. Uses business_id and staff_ids configured in tenant MS Bookings credentials.',
                 'input_schema': {
                     'type': 'object',
                     'properties': {
@@ -39,15 +39,6 @@ class MSBookingsProvider(BaseProvider):
                             'type': 'string',
                             'description': 'Windows time zone name',
                             'examples': ['Eastern Standard Time', 'Pacific Standard Time', 'Central Standard Time']
-                        },
-                        'business_id': {
-                            'type': 'string',
-                            'description': 'Microsoft Bookings business ID or email (optional, uses tenant default if not provided)'
-                        },
-                        'staff_ids': {
-                            'type': 'array',
-                            'items': {'type': 'string'},
-                            'description': 'List of staff member GUIDs (optional, uses tenant default if not provided)'
                         }
                     },
                     'required': ['startLocal', 'timeZone']
@@ -281,8 +272,19 @@ class MSGetStaffAvailabilityTool(BaseTool):
         # Parse arguments
         start_local_input = arguments.get('startLocal')
         time_zone = arguments.get('timeZone')
-        business_id = arguments.get('business_id', ms_cred.business_id)
-        staff_ids = arguments.get('staff_ids', ms_cred.staff_ids)
+        
+        # Get business_id and staff_ids from tenant credentials
+        business_id = ms_cred.business_id
+        staff_ids = ms_cred.staff_ids or []
+        
+        # Validate that business_id is configured
+        if not business_id:
+            return {
+                'error': True,
+                'message': 'MS Bookings business_id not configured in tenant credentials',
+                'status': None,
+                'details': None
+            }
         
         if not time_zone:
             return {
