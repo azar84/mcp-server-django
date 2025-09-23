@@ -624,7 +624,10 @@ class MSBookOnlineMeetingTool(BaseTool):
         try:
             # Get access token using tenant's credentials
             tenant = context.get('tenant')
-            access_token = await self.provider.get_access_token(tenant)
+            ms_cred = context.get('ms_bookings_credential')
+            if not ms_cred:
+                return 'ERROR: MS Bookings credentials not found in context'
+            access_token = await self.provider.get_access_token(tenant, ms_cred)
         except Exception as e:
             return f'ERROR: Failed to authenticate with MS Bookings: {str(e)}'
         
