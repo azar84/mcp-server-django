@@ -125,6 +125,19 @@ class MCPStreamableHTTPView(View):
                 
                 if tenant_id and token_secret:
                     # Look up by both tenant_id and token_secret for uniqueness
+                    # Use database_sync_to_async to avoid threading issues
+                    from channels.db import database_sync_to_async
+                    
+                    @database_sync_to_async
+                    def get_auth_token():
+                        return AuthToken.objects.select_related('tenant').get(
+                            tenant__tenant_id=tenant_id,
+                            token=token_secret,
+                            is_active=True
+                        )
+                    
+                    # This is a sync method, so we need to handle this differently
+                    # For now, use direct database access since this is in a sync context
                     return AuthToken.objects.select_related('tenant').get(
                         tenant__tenant_id=tenant_id,
                         token=token_secret,
