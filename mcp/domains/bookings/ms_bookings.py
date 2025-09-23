@@ -254,16 +254,12 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials using database_sync_to_async (Heroku PostgreSQL compatible)
+            # Retrieve MS Bookings credentials synchronously (bypass all async handling)
             from ...models import MSBookingsCredential
-            from channels.db import database_sync_to_async
-            
-            @database_sync_to_async
-            def get_ms_bookings_credential(tenant):
-                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
             
             try:
-                ms_cred = await get_ms_bookings_credential(tenant)
+                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
+                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
             except MSBookingsCredential.DoesNotExist:
                 return json.dumps({
                     'error': True,
