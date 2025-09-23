@@ -145,7 +145,23 @@ class TwilioSendSMSTool(BaseTool):
             try:
                 config = await get_twilio_config(tenant)
             except Exception as e:
-                return f'ERROR: {str(e)}'
+                return json.dumps({
+                    'error': True,
+                    'message': f'Failed to get Twilio configuration: {str(e)}',
+                    'error_type': 'configuration_error',
+                    'suggestions': [
+                        'Check if Twilio credentials are properly configured for this tenant',
+                        'Verify that account_sid, auth_token, and phone_number are set correctly',
+                        'Ensure the Twilio credentials are active and valid',
+                        'Try re-authenticating or updating the credentials'
+                    ],
+                    'status': None,
+                    'details': {
+                        'error_message': str(e),
+                        'error_type': type(e).__name__,
+                        'tenant_id': tenant.tenant_id if tenant else 'Unknown'
+                    }
+                })
             
             # Extract and validate arguments
             to_number = arguments.get('to')
@@ -153,16 +169,63 @@ class TwilioSendSMSTool(BaseTool):
             from_number = config['phone_number']  # Always use tenant's Twilio phone number
             
             if not to_number or not message_text:
-                return 'ERROR: Both "to" and "message" are required'
+                return json.dumps({
+                    'error': True,
+                    'message': 'Missing required parameters',
+                    'error_type': 'missing_parameters',
+                    'suggestions': [
+                        'Provide both "to" (recipient phone number) and "message" parameters',
+                        'Phone number should be in E.164 format (e.g., +1234567890)',
+                        'Message should contain the text content to send'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_parameters': [p for p in ['to', 'message'] if not arguments.get(p)],
+                        'provided_parameters': {k: v for k, v in arguments.items() if k in ['to', 'message']}
+                    }
+                })
             
             # Format phone numbers
             to_formatted = self._format_phone_number(to_number)
             from_formatted = self._format_phone_number(from_number)
             
             if not to_formatted:
-                return f'ERROR: Invalid recipient phone number: {to_number}'
+                return json.dumps({
+                    'error': True,
+                    'message': f'Invalid recipient phone number: {to_number}',
+                    'error_type': 'invalid_phone_number',
+                    'suggestions': [
+                        'Use E.164 format: +1234567890 (country code + number)',
+                        'For US/Canada: +1 followed by 10 digits',
+                        'For international: + followed by country code and number',
+                        'Remove spaces, dashes, and parentheses',
+                        'Examples: "+15551234567", "+442071234567"'
+                    ],
+                    'status': None,
+                    'details': {
+                        'invalid_number': to_number,
+                        'number_type': 'recipient',
+                        'required_format': 'E.164'
+                    }
+                })
             if not from_formatted:
-                return f'ERROR: Invalid sender phone number: {from_number}'
+                return json.dumps({
+                    'error': True,
+                    'message': f'Invalid sender phone number in configuration: {from_number}',
+                    'error_type': 'invalid_sender_number',
+                    'suggestions': [
+                        'Check Twilio phone number configuration in tenant credentials',
+                        'Verify the phone number is in E.164 format',
+                        'Ensure the phone number is verified in your Twilio account',
+                        'Contact your administrator to fix the phone number configuration'
+                    ],
+                    'status': None,
+                    'details': {
+                        'invalid_number': from_number,
+                        'number_type': 'sender',
+                        'configuration_location': 'tenant Twilio credentials'
+                    }
+                })
             
             # Send SMS using Twilio API
             try:
@@ -199,14 +262,71 @@ class TwilioSendSMSTool(BaseTool):
                         "date_created": result.get('date_created')
                     })
                 else:
-                    error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
-                    return f'ERROR: SMS sending failed (HTTP {response.status_code}): {error_data}'
+                    try:
+                        error_data = response.json()
+                        api_error_msg = error_data.get('message', 'Unknown Twilio API error')
+                    except:
+                        api_error_msg = response.text or 'Unknown Twilio API error'
+                    
+                    return json.dumps({
+                        'error': True,
+                        'message': f'SMS sending failed: {api_error_msg}',
+                        'error_type': 'twilio_api_error',
+                        'suggestions': [
+                            'Check if the recipient phone number is valid and reachable',
+                            'Verify your Twilio account has sufficient balance',
+                            'Ensure the phone number is verified in your Twilio account',
+                            'Check Twilio account restrictions or rate limits',
+                            'Verify the message content complies with SMS regulations'
+                        ],
+                        'status': response.status_code,
+                        'details': {
+                            'http_status': response.status_code,
+                            'api_error': api_error_msg,
+                            'from_number': from_formatted,
+                            'to_number': to_formatted,
+                            'message_length': len(message_text)
+                        }
+                    })
                     
             except Exception as e:
-                return f'ERROR: Twilio API error: {str(e)}'
+                return json.dumps({
+                    'error': True,
+                    'message': f'Twilio API request failed: {str(e)}',
+                    'error_type': 'api_request_error',
+                    'suggestions': [
+                        'Check your internet connection',
+                        'Verify Twilio API is accessible',
+                        'Try again in a few minutes',
+                        'Contact support if this error persists'
+                    ],
+                    'status': None,
+                    'details': {
+                        'error_message': str(e),
+                        'error_type': type(e).__name__,
+                        'from_number': from_formatted,
+                        'to_number': to_formatted
+                    }
+                })
                 
         except Exception as e:
-            return f'ERROR: {str(e)}'
+            return json.dumps({
+                'error': True,
+                'message': f'Unexpected error in SMS sending: {str(e)}',
+                'error_type': 'unexpected_error',
+                'suggestions': [
+                    'Try again in a few minutes',
+                    'Check your internet connection',
+                    'Verify Twilio credentials are correct',
+                    'Contact support if this error persists'
+                ],
+                'status': None,
+                'details': {
+                    'error_message': str(e),
+                    'error_type': type(e).__name__,
+                    'tenant_id': tenant.tenant_id if tenant else 'Unknown'
+                }
+            })
 
 
 class TwilioGetMessageStatusTool(BaseTool):

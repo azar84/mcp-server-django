@@ -258,19 +258,104 @@ class CalculatorTool(BaseTool):
         expression = arguments.get('expression')
         
         if not expression:
-            return "Error: Expression is required"
+            return json.dumps({
+                'error': True,
+                'message': 'Missing required parameter: expression',
+                'error_type': 'missing_parameter',
+                'suggestions': [
+                    'Provide a mathematical expression to evaluate',
+                    'Examples: "2 + 2", "10 * 5", "(3 + 4) * 2"',
+                    'Use only numbers and basic operators: +, -, *, /, (, )'
+                ],
+                'status': None,
+                'details': {
+                    'missing_parameter': 'expression',
+                    'supported_operations': ['addition (+)', 'subtraction (-)', 'multiplication (*)', 'division (/)', 'parentheses ()']
+                }
+            })
         
         try:
             # Security: only allow basic math operations
             allowed_chars = set('0123456789+-*/.() ')
             if not all(c in allowed_chars for c in expression):
-                return "Error: Expression contains invalid characters"
+                return json.dumps({
+                    'error': True,
+                    'message': 'Expression contains invalid characters',
+                    'error_type': 'invalid_expression',
+                    'suggestions': [
+                        'Use only numbers (0-9) and basic math operators',
+                        'Allowed characters: +, -, *, /, (, ), and spaces',
+                        'Examples: "2 + 2", "10 * 5", "(3 + 4) * 2"',
+                        'Remove any letters, special symbols, or advanced functions'
+                    ],
+                    'status': None,
+                    'details': {
+                        'invalid_expression': expression,
+                        'allowed_characters': ['0-9', '+', '-', '*', '/', '(', ')', ' '],
+                        'invalid_characters_found': [c for c in expression if c not in allowed_chars]
+                    }
+                })
             
             result = eval(expression)
-            return f"{expression} = {result}"
+            return json.dumps({
+                'success': True,
+                'expression': expression,
+                'result': result,
+                'formatted': f"{expression} = {result}"
+            })
         
+        except ZeroDivisionError:
+            return json.dumps({
+                'error': True,
+                'message': 'Division by zero is not allowed',
+                'error_type': 'division_by_zero',
+                'suggestions': [
+                    'Check your expression for division by zero',
+                    'Ensure denominators are not zero',
+                    'Example: Use "5/2" instead of "5/0"'
+                ],
+                'status': None,
+                'details': {
+                    'expression': expression,
+                    'error_type': 'ZeroDivisionError'
+                }
+            })
+        except SyntaxError as e:
+            return json.dumps({
+                'error': True,
+                'message': f'Invalid mathematical expression syntax: {str(e)}',
+                'error_type': 'syntax_error',
+                'suggestions': [
+                    'Check for missing parentheses or operators',
+                    'Ensure proper mathematical notation',
+                    'Examples: "2 + 2", "10 * 5", "(3 + 4) * 2"',
+                    'Avoid complex expressions or functions'
+                ],
+                'status': None,
+                'details': {
+                    'expression': expression,
+                    'syntax_error': str(e),
+                    'error_type': 'SyntaxError'
+                }
+            })
         except Exception as e:
-            return f"Error evaluating expression: {str(e)}"
+            return json.dumps({
+                'error': True,
+                'message': f'Error evaluating expression: {str(e)}',
+                'error_type': 'evaluation_error',
+                'suggestions': [
+                    'Check that the expression is a valid mathematical calculation',
+                    'Ensure all parentheses are properly closed',
+                    'Try a simpler expression first',
+                    'Use only basic arithmetic operations'
+                ],
+                'status': None,
+                'details': {
+                    'expression': expression,
+                    'error_message': str(e),
+                    'error_type': type(e).__name__
+                }
+            })
 
 
 class SystemInfoTool(BaseTool):
@@ -516,7 +601,21 @@ class TimezoneLookupTool(BaseTool):
         except Exception as e:
             error_result = {
                 'error': True,
-                'message': f'LOOKUP_FAILED: {str(e)}',
+                'message': f'Timezone lookup failed: {str(e)}',
+                'error_type': 'lookup_failed',
+                'suggestions': [
+                    'Try a different city name or location',
+                    'Use major city names (e.g., "New York", "London", "Tokyo")',
+                    'Check spelling of the city name',
+                    'Try using country names if city lookup fails',
+                    'Ensure the location exists and is spelled correctly'
+                ],
+                'status': None,
+                'details': {
+                    'input_location': arguments.get('location'),
+                    'error_message': str(e),
+                    'error_type': type(e).__name__
+                },
                 'windows_timezone': None,
                 'iana_timezone': None
             }
@@ -591,9 +690,23 @@ class GetResourceTool(BaseTool):
             
         except Exception as e:
             return json.dumps({
-                'error': f'Failed to fetch resource: {str(e)}',
-                'uri': uri,
-                'suggestion': 'Check if the URI is correct and the resource exists'
+                'error': True,
+                'message': f'Failed to fetch resource: {str(e)}',
+                'error_type': 'resource_fetch_failed',
+                'suggestions': [
+                    'Check if the URI is correct and exists',
+                    'Verify the resource is accessible to your tenant',
+                    'Try using search_documents to find available resources',
+                    'Ensure the resource URI format is correct (e.g., "tenant://resource-name")',
+                    'Contact your administrator if the resource should be available'
+                ],
+                'status': None,
+                'details': {
+                    'uri': uri,
+                    'error_message': str(e),
+                    'error_type': type(e).__name__,
+                    'tenant_id': context.get('tenant').tenant_id if context.get('tenant') else 'Unknown'
+                }
             })
 
 
@@ -727,7 +840,21 @@ class SearchDocumentsTool(BaseTool):
             
         except Exception as e:
             return json.dumps({
-                'error': f'Search failed: {str(e)}',
-                'query': query,
-                'suggestion': 'Try a simpler search query or check if resources are available'
+                'error': True,
+                'message': f'Search failed: {str(e)}',
+                'error_type': 'search_failed',
+                'suggestions': [
+                    'Try a simpler or more specific search query',
+                    'Use different keywords to describe what you\'re looking for',
+                    'Check if resources are available for your tenant',
+                    'Try broader search terms if specific searches fail',
+                    'Contact your administrator if you expect resources to be available'
+                ],
+                'status': None,
+                'details': {
+                    'query': query,
+                    'error_message': str(e),
+                    'error_type': type(e).__name__,
+                    'tenant_id': context.get('tenant').tenant_id if context.get('tenant') else 'Unknown'
+                }
             })

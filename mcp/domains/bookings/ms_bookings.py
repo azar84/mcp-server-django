@@ -59,8 +59,8 @@ class MSBookingsProvider(BaseProvider):
                         },
                         'timeZone': {
                             'type': 'string',
-                            'description': 'Windows time zone, e.g. \'Canada Central Standard Time\'',
-                            'examples': ['Eastern Standard Time', 'Pacific Standard Time', 'Canada Central Standard Time']
+                            'description': 'Windows time zone, e.g. \' Central Standard Time\'',
+                            'examples': ['Eastern Standard Time', 'Pacific Standard Time', 'Central Standard Time']
                         },
                         'customerName': {
                             'type': 'string',
@@ -259,15 +259,23 @@ class MSGetStaffAvailabilityTool(BaseTool):
             
         except Exception as e:
             error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
-            return {
+            return json.dumps({
                 'error': True,
                 'message': f'Failed to authenticate with MS Bookings: {error_msg}',
+                'error_type': 'authentication_failed',
+                'suggestions': [
+                    'Check if MS Bookings credentials are properly configured for this tenant',
+                    'Verify that azure_tenant_id, client_id, and client_secret are correct',
+                    'Ensure the Azure application has the required Microsoft Graph permissions',
+                    'Try re-authenticating or updating the credentials'
+                ],
                 'status': None,
                 'details': {
                     'tenant_id': tenant.tenant_id if tenant else 'None',
-                    'error_type': type(e).__name__
+                    'error_type': type(e).__name__,
+                    'credential_fields_required': ['azure_tenant_id', 'client_id', 'client_secret']
                 }
-            }
+            })
         
         # Parse arguments
         start_local_input = arguments.get('startLocal')
@@ -279,20 +287,40 @@ class MSGetStaffAvailabilityTool(BaseTool):
         
         # Validate that business_id is configured
         if not business_id:
-            return {
+            return json.dumps({
                 'error': True,
                 'message': 'MS Bookings business_id not configured in tenant credentials',
+                'error_type': 'configuration_missing',
+                'suggestions': [
+                    'Configure the business_id in the tenant\'s MS Bookings credentials',
+                    'The business_id should be the Microsoft Bookings business ID or email address',
+                    'Check the MS Bookings admin panel to get the correct business ID'
+                ],
                 'status': None,
-                'details': None
-            }
+                'details': {
+                    'tenant_id': tenant.tenant_id,
+                    'missing_field': 'business_id',
+                    'configuration_location': 'tenant MS Bookings credentials'
+                }
+            })
         
         if not time_zone:
-            return {
+            return json.dumps({
                 'error': True,
-                'message': 'Missing "timeZone" (Windows time zone, e.g., "Eastern Standard Time")',
+                'message': 'Missing "timeZone" parameter',
+                'error_type': 'missing_parameter',
+                'suggestions': [
+                    'Provide the timeZone parameter with a valid Windows time zone name',
+                    'Common time zones: "Eastern Standard Time", "Pacific Standard Time", "Central Standard Time"',
+                    'Use the exact Windows time zone name as shown in Windows settings'
+                ],
                 'status': None,
-                'details': None
-            }
+                'details': {
+                    'missing_parameter': 'timeZone',
+                    'required_format': 'Windows time zone name',
+                    'examples': ['Eastern Standard Time', 'Pacific Standard Time', 'Central Standard Time']
+                }
+            })
         
         try:
             # Normalize start time and compute end time (7 days later)
@@ -305,12 +333,27 @@ class MSGetStaffAvailabilityTool(BaseTool):
             end_local = end_dt.strftime('%Y-%m-%dT%H:%M:%S')
             
         except ValueError as e:
-            return {
+            return json.dumps({
                 'error': True,
-                'message': str(e),
+                'message': f'Invalid startLocal format: {str(e)}',
+                'error_type': 'invalid_date_format',
+                'suggestions': [
+                    'Use a valid date/time format for startLocal parameter',
+                    'Supported formats: "YYYY-MM-DDTHH:mm:ss", "YYYY-MM-DDTHH:mm", "YYYY-MM-DD"',
+                    'Examples: "2025-09-15T09:00:00", "2025-09-15T9:00", "2025-09-15"',
+                    'Make sure the date is in the future'
+                ],
                 'status': None,
-                'details': None
-            }
+                'details': {
+                    'invalid_value': str(start_local_input),
+                    'error_details': str(e),
+                    'supported_formats': [
+                        'YYYY-MM-DDTHH:mm:ss',
+                        'YYYY-MM-DDTHH:mm', 
+                        'YYYY-MM-DD'
+                    ]
+                }
+            })
         
         try:
             import httpx
@@ -355,19 +398,52 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     'response': api_response
                 })
             else:
+                # Parse error response for better agent guidance
+                try:
+                    error_data = response.json()
+                    api_error_msg = error_data.get('error', {}).get('message', 'Unknown API error')
+                except:
+                    api_error_msg = response.text or 'Unknown API error'
+                
                 return json.dumps({
                     'error': True,
-                    'message': f'MS Bookings API error: HTTP {response.status_code}',
+                    'message': f'MS Bookings API error: HTTP {response.status_code} - {api_error_msg}',
+                    'error_type': 'api_error',
+                    'suggestions': [
+                        'Check if the business_id is correct and exists in Microsoft Bookings',
+                        'Verify that staff_ids are valid GUIDs for staff members in this business',
+                        'Ensure the Azure application has proper permissions for Microsoft Bookings',
+                        'Try checking the MS Bookings admin panel for any configuration issues',
+                        'Verify the time zone format matches Windows time zone names'
+                    ],
                     'status': response.status_code,
-                    'details': response.text
+                    'details': {
+                        'http_status': response.status_code,
+                        'api_error': api_error_msg,
+                        'business_id': business_id,
+                        'staff_ids': staff_ids,
+                        'request_payload': payload
+                    }
                 })
                 
         except Exception as e:
             return json.dumps({
                 'error': True,
-                'message': str(e),
+                'message': f'Unexpected error while calling MS Bookings API: {str(e)}',
+                'error_type': 'unexpected_error',
+                'suggestions': [
+                    'Check your internet connection and try again',
+                    'Verify that the Microsoft Graph API is accessible',
+                    'Contact support if this error persists',
+                    'Try again in a few minutes as this might be a temporary issue'
+                ],
                 'status': None,
-                'details': None
+                'details': {
+                    'error_type': type(e).__name__,
+                    'error_message': str(e),
+                    'business_id': business_id,
+                    'staff_ids': staff_ids
+                }
             })
 
 
