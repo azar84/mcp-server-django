@@ -718,26 +718,14 @@ class MSBookOnlineMeetingTool(BaseTool):
             # Normalize start time
             start_local = self._normalize_start_local(str(start_local_raw))
             
-            # Get tenant MS Bookings configuration using sync_to_async
-            @database_sync_to_async
-            def get_ms_bookings_config(tenant):
-                try:
-                    ms_cred = tenant.ms_bookings_credential
-                    return {
-                        'business_id': ms_cred.business_id,
-                        'service_id': ms_cred.service_id,
-                        'staff_ids': ms_cred.staff_ids or []
-                    }
-                except Exception as e:
-                    raise Exception(f'MS Bookings credentials not configured: {str(e)}')
+            # Get MS Bookings configuration from context (already retrieved in execute method)
+            ms_cred = context.get('ms_bookings_credential')
+            if not ms_cred:
+                return 'ERROR: MS Bookings credentials not found in context'
             
-            try:
-                config = await get_ms_bookings_config(tenant)
-                business_id = config['business_id']
-                service_id = arguments.get('serviceId') or config['service_id']
-                staff_ids = config['staff_ids']
-            except Exception as e:
-                return f'ERROR: {str(e)}'
+            business_id = ms_cred.business_id
+            service_id = arguments.get('serviceId') or ms_cred.service_id
+            staff_ids = ms_cred.staff_ids or []
             
             if not business_id:
                 return 'ERROR: MS Bookings business ID not configured in tenant credentials'
