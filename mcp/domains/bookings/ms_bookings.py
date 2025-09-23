@@ -134,25 +134,15 @@ class MSBookingsProvider(BaseProvider):
         except:
             return False
     
-    async def get_access_token(self, tenant) -> str:
+    async def get_access_token(self, tenant, ms_cred) -> str:
         """Get access token using tenant's MS Bookings credentials"""
-        from ...models import MSBookingsCredential
         from ...auth import mcp_authenticator
         
         if not tenant:
             raise Exception('No tenant provided')
         
-        try:
-            # Get MS Bookings credentials for this tenant (async database access)
-            from channels.db import database_sync_to_async
-            
-            @database_sync_to_async
-            def get_ms_bookings_credential(tenant):
-                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            
-            ms_cred = await get_ms_bookings_credential(tenant)
-        except MSBookingsCredential.DoesNotExist:
-            raise Exception(f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})')
+        if not ms_cred:
+            raise Exception(f'MS Bookings credentials not provided for tenant: {tenant.name} ({tenant.tenant_id})')
         
         if not ms_cred.azure_tenant_id or not ms_cred.client_id or not ms_cred.client_secret:
             raise Exception(f'MS Bookings credentials incomplete for tenant: {tenant.name}. Missing: azure_tenant_id, client_id, or client_secret')
@@ -246,26 +236,95 @@ class MSGetStaffAvailabilityTool(BaseTool):
         
         raise ValueError(f"Invalid startLocal format: {input_str}")
     
-    async def _execute_with_credentials(self, arguments: Dict[str, Any], 
-                                      credentials: Dict[str, str], 
-                                      context: Dict[str, Any]) -> Any:
+    async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
+        """Execute the staff availability check with credentials retrieved at top level"""
         try:
-            # Get access token and tenant credentials
+            # Get MS Bookings credentials at the top level to avoid threading issues
+            tenant = context.get('tenant')
+            if not tenant:
+                return json.dumps({
+                    'error': True,
+                    'message': 'No tenant found in context',
+                    'error_type': 'missing_context',
+                    'suggestions': [
+                        'Ensure the request includes proper tenant authentication',
+                        'Check if the authentication token is valid'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_context': 'tenant'
+                    }
+                })
+            
+            # Retrieve MS Bookings credentials synchronously at the top level
+            from ...models import MSBookingsCredential
+            try:
+                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+            except MSBookingsCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS Bookings credentials for this tenant',
+                        'Ensure azure_tenant_id, client_id, and client_secret are set',
+                        'Activate the MS Bookings credential configuration'
+                    ],
+                    'status': None,
+                    'details': {
+                        'tenant_id': tenant.tenant_id,
+                        'tenant_name': tenant.name,
+                        'missing_credentials': 'MS Bookings'
+                    }
+                })
+            
+            # Add MS Bookings credentials to context for use in _execute_with_credentials
+            context['ms_bookings_credential'] = ms_cred
+            
+            # Get provider-specific credentials from context
+            credentials = context.get('credentials', {})
+            provider_credentials = {}
+            
+            for key in self.provider.get_required_credentials():
+                cred_key = f"{self.provider.name}_{key}"
+                if cred_key in credentials:
+                    provider_credentials[key] = credentials[cred_key]
+            
+            # Execute with credentials
+            return await self._execute_with_credentials(arguments, provider_credentials, context)
+            
+        except Exception as e:
+            error_msg = str(e) if str(e) else f'Unknown error: {type(e).__name__}'
+            return json.dumps({
+                'error': True,
+                'message': f'Failed to execute staff availability check: {error_msg}',
+                'error_type': 'execution_failed',
+                'suggestions': [
+                    'Check the request parameters and try again',
+                    'Verify tenant configuration and credentials',
+                    'Contact support if the issue persists'
+                ],
+                'status': None,
+                'details': {
+                    'error_type': type(e).__name__,
+                    'error_message': error_msg
+                }
+            })
+    
+    async def _execute_with_credentials(self, arguments: Dict[str, Any], 
+                                       credentials: Dict[str, str], 
+                                       context: Dict[str, Any]) -> Any:
+        try:
+            # Get tenant and MS Bookings credentials (retrieved at top level to avoid threading issues)
             tenant = context.get('tenant')
             if not tenant:
                 raise Exception('No tenant found in context')
             
-            access_token = await self.provider.get_access_token(tenant)
+            ms_cred = context.get('ms_bookings_credential')
+            if not ms_cred:
+                raise Exception('MS Bookings credentials not found in context')
             
-            # Get MS Bookings credentials for business ID and staff IDs
-            from ...models import MSBookingsCredential
-            from channels.db import database_sync_to_async
-            
-            @database_sync_to_async
-            def get_ms_bookings_credential(tenant):
-                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            
-            ms_cred = await get_ms_bookings_credential(tenant)
+            access_token = await self.provider.get_access_token(tenant, ms_cred)
             
         except Exception as e:
             error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
