@@ -121,47 +121,91 @@ class TwilioSendSMSTool(BaseTool):
             # For international numbers, assume they're correct
             return f"+{digits}"
     
-    async def _execute_with_credentials(self, arguments: Dict[str, Any], 
-                                      credentials: Dict[str, str], 
-                                      context: Dict[str, Any]) -> Any:
-        from channels.db import database_sync_to_async
-        
+    async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
+        """Execute SMS tool with credentials retrieved at top level (same as MS Bookings pattern)"""
         try:
-            # Get tenant Twilio configuration
+            # Get Twilio credentials at the top level to avoid threading issues
             tenant = context.get('tenant')
-            
-            @database_sync_to_async
-            def get_twilio_config(tenant):
-                try:
-                    twilio_cred = tenant.twilio_credential
-                    return {
-                        'account_sid': twilio_cred.account_sid,
-                        'auth_token': twilio_cred.get_auth_token(),  # Decrypted
-                        'phone_number': twilio_cred.phone_number
-                    }
-                except Exception as e:
-                    raise Exception(f'Twilio credentials not configured: {str(e)}')
-            
-            try:
-                config = await get_twilio_config(tenant)
-            except Exception as e:
+            if not tenant:
                 return json.dumps({
                     'error': True,
-                    'message': f'Failed to get Twilio configuration: {str(e)}',
-                    'error_type': 'configuration_error',
+                    'message': 'No tenant found in context',
+                    'error_type': 'missing_context',
                     'suggestions': [
-                        'Check if Twilio credentials are properly configured for this tenant',
-                        'Verify that account_sid, auth_token, and phone_number are set correctly',
-                        'Ensure the Twilio credentials are active and valid',
-                        'Try re-authenticating or updating the credentials'
+                        'Ensure the request includes proper tenant authentication',
+                        'Check if the authentication token is valid'
                     ],
                     'status': None,
                     'details': {
-                        'error_message': str(e),
-                        'error_type': type(e).__name__,
-                        'tenant_id': tenant.tenant_id if tenant else 'Unknown'
+                        'missing_context': 'tenant'
                     }
                 })
+            
+            # Retrieve Twilio credentials synchronously (bypass all async handling)
+            from ...models import TwilioCredential
+            
+            try:
+                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
+                twilio_cred = TwilioCredential.objects.get(tenant=tenant, is_active=True)
+            except TwilioCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'Twilio credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure Twilio credentials for this tenant',
+                        'Ensure account_sid, auth_token, and phone_number are set',
+                        'Activate the Twilio credential configuration'
+                    ],
+                    'status': None,
+                    'details': {
+                        'tenant_id': tenant.tenant_id,
+                        'tenant_name': tenant.name,
+                        'missing_credentials': 'Twilio'
+                    }
+                })
+            
+            # Add Twilio credentials to context for use in _execute_with_credentials
+            context['twilio_credential'] = twilio_cred
+            
+            # Get provider-specific credentials from context
+            credentials = context.get('credentials', {})
+            provider_credentials = {}
+            
+            for key in self.provider.get_required_credentials():
+                cred_key = f"{self.provider.name}_{key}"
+                if cred_key in credentials:
+                    provider_credentials[key] = credentials[cred_key]
+            
+            # Execute with credentials
+            return await self._execute_with_credentials(arguments, provider_credentials, context)
+            
+        except Exception as e:
+            return json.dumps({
+                'error': True,
+                'message': f'Error executing SMS tool: {str(e)}',
+                'error_type': 'execution_error',
+                'details': {
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                }
+            })
+
+    async def _execute_with_credentials(self, arguments: Dict[str, Any], 
+                                      credentials: Dict[str, str], 
+                                      context: Dict[str, Any]) -> Any:
+        try:
+            # Get Twilio configuration from context (already retrieved in execute method)
+            twilio_cred = context.get('twilio_credential')
+            if not twilio_cred:
+                return 'ERROR: Twilio credentials not found in context'
+            
+            # Extract configuration from credential
+            config = {
+                'account_sid': twilio_cred.account_sid,
+                'auth_token': twilio_cred.get_auth_token(),  # Decrypted
+                'phone_number': twilio_cred.phone_number
+            }
             
             # Extract and validate arguments
             to_number = arguments.get('to')
@@ -332,30 +376,90 @@ class TwilioSendSMSTool(BaseTool):
 class TwilioGetMessageStatusTool(BaseTool):
     """Get SMS message delivery status from Twilio"""
     
+    async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
+        """Execute message status tool with credentials retrieved at top level (same as MS Bookings pattern)"""
+        try:
+            # Get Twilio credentials at the top level to avoid threading issues
+            tenant = context.get('tenant')
+            if not tenant:
+                return json.dumps({
+                    'error': True,
+                    'message': 'No tenant found in context',
+                    'error_type': 'missing_context',
+                    'suggestions': [
+                        'Ensure the request includes proper tenant authentication',
+                        'Check if the authentication token is valid'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_context': 'tenant'
+                    }
+                })
+            
+            # Retrieve Twilio credentials synchronously (bypass all async handling)
+            from ...models import TwilioCredential
+            
+            try:
+                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
+                twilio_cred = TwilioCredential.objects.get(tenant=tenant, is_active=True)
+            except TwilioCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'Twilio credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure Twilio credentials for this tenant',
+                        'Ensure account_sid, auth_token, and phone_number are set',
+                        'Activate the Twilio credential configuration'
+                    ],
+                    'status': None,
+                    'details': {
+                        'tenant_id': tenant.tenant_id,
+                        'tenant_name': tenant.name,
+                        'missing_credentials': 'Twilio'
+                    }
+                })
+            
+            # Add Twilio credentials to context for use in _execute_with_credentials
+            context['twilio_credential'] = twilio_cred
+            
+            # Get provider-specific credentials from context
+            credentials = context.get('credentials', {})
+            provider_credentials = {}
+            
+            for key in self.provider.get_required_credentials():
+                cred_key = f"{self.provider.name}_{key}"
+                if cred_key in credentials:
+                    provider_credentials[key] = credentials[cred_key]
+            
+            # Execute with credentials
+            return await self._execute_with_credentials(arguments, provider_credentials, context)
+            
+        except Exception as e:
+            return json.dumps({
+                'error': True,
+                'message': f'Error executing message status tool: {str(e)}',
+                'error_type': 'execution_error',
+                'details': {
+                    'error_type': type(e).__name__,
+                    'error_message': str(e)
+                }
+            })
+
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                       credentials: Dict[str, str], 
                                       context: Dict[str, Any]) -> Any:
-        from channels.db import database_sync_to_async
-        
         try:
-            # Get tenant Twilio configuration
-            tenant = context.get('tenant')
+            # Get Twilio configuration from context (already retrieved in execute method)
+            twilio_cred = context.get('twilio_credential')
+            if not twilio_cred:
+                return 'ERROR: Twilio credentials not found in context'
             
-            @database_sync_to_async
-            def get_twilio_config(tenant):
-                try:
-                    twilio_cred = tenant.twilio_credential
-                    return {
-                        'account_sid': twilio_cred.account_sid,
-                        'auth_token': twilio_cred.get_auth_token()
-                    }
-                except Exception as e:
-                    raise Exception(f'Twilio credentials not configured: {str(e)}')
-            
-            try:
-                config = await get_twilio_config(tenant)
-            except Exception as e:
-                return f'ERROR: {str(e)}'
+            # Extract configuration from credential
+            config = {
+                'account_sid': twilio_cred.account_sid,
+                'auth_token': twilio_cred.get_auth_token()
+            }
             
             # Extract message SID
             message_sid = arguments.get('message_sid')
