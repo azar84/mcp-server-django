@@ -32,21 +32,10 @@ if DATABASE_URL.startswith('postgres://'):
             default=DATABASE_URL,
             conn_max_age=0,  # Disable persistent connections to prevent exhaustion
             conn_health_checks=True,
-            # Heroku-optimized database settings
-            options={
-                'MAX_CONNS': 1,  # Maximum connections per dyno
-                'MIN_CONNS': 0,  # No minimum connections
-                'INITIAL_CONNS': 0,  # No initial connections
-                'MAX_IDLE': 0,   # No idle connections
-                'MAX_USAGE': 100,  # Max queries per connection before recycling
-                'BLOCK': True,   # Block when pool is exhausted
-                'RESET_QUERIES': True,  # Reset queries on connection reuse
-                'AUTOCOMMIT': True,  # Enable autocommit for better performance
-            }
         )
     }
     
-    # Additional database optimization settings
+    # Additional database optimization settings for Heroku
     DATABASE_CONNECTION_POOL_SIZE = 1  # Limit connection pool size
     DATABASE_CONNECTION_MAX_AGE = 0    # Don't reuse connections
 else:
