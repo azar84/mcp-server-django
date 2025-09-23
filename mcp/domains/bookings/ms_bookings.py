@@ -138,7 +138,6 @@ class MSBookingsProvider(BaseProvider):
         """Get access token using tenant's MS Bookings credentials"""
         from ...models import MSBookingsCredential
         from ...auth import mcp_authenticator
-        from asgiref.sync import sync_to_async
         
         if not tenant:
             raise Exception('No tenant provided')
