@@ -144,3 +144,6 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # MCP Server specific settings
 MCP_ENCRYPTION_KEY = 'ErPKIP07E_Jki8PkuVB5vjCVF7-Sz8hu1Glu7emKEzQ='
+
+# Allow async-unsafe operations for MS Bookings tools
+DJANGO_ALLOW_ASYNC_UNSAFE = True

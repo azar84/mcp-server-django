@@ -139,3 +139,6 @@ X_FRAME_OPTIONS = 'DENY'
 
 # CORS settings (if needed for browser access)
 CORS_ALLOW_ALL_ORIGINS = True  # For development - restrict in production
+
+# Allow async-unsafe operations for MS Bookings tools
+DJANGO_ALLOW_ASYNC_UNSAFE = True
