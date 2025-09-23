@@ -14,4 +14,3 @@ psycopg2-binary>=2.9.0
 requests>=2.31.0
 httpx>=0.25.0
 PyJWT>=2.8.0
-django-db-pool>=1.0.0

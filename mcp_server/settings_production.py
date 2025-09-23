@@ -26,13 +26,13 @@ import dj_database_url
 DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite:///db.sqlite3')
 
 if DATABASE_URL.startswith('postgres://'):
-    # Use connection pooling for PostgreSQL
+    # Use Django's built-in connection management for PostgreSQL
     DATABASES = {
         'default': dj_database_url.config(
             default=DATABASE_URL,
-            conn_max_age=0,  # Disable persistent connections
+            conn_max_age=0,  # Disable persistent connections to prevent exhaustion
             conn_health_checks=True,
-            # Connection pooling settings optimized for Heroku
+            # Heroku-optimized database settings
             options={
                 'MAX_CONNS': 1,  # Maximum connections per dyno
                 'MIN_CONNS': 0,  # No minimum connections
@@ -41,6 +41,7 @@ if DATABASE_URL.startswith('postgres://'):
                 'MAX_USAGE': 100,  # Max queries per connection before recycling
                 'BLOCK': True,   # Block when pool is exhausted
                 'RESET_QUERIES': True,  # Reset queries on connection reuse
+                'AUTOCOMMIT': True,  # Enable autocommit for better performance
             }
         )
     }
