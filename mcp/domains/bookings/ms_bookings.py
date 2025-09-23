@@ -256,10 +256,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials synchronously at the top level
+            # Retrieve MS Bookings credentials using sync_to_async (even execute() runs in async context)
             from ...models import MSBookingsCredential
+            from asgiref.sync import sync_to_async
+            
+            @sync_to_async
+            def get_ms_bookings_credential(tenant):
+                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+            
             try:
-                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
+                ms_cred = await get_ms_bookings_credential(tenant)
             except MSBookingsCredential.DoesNotExist:
                 return json.dumps({
                     'error': True,
