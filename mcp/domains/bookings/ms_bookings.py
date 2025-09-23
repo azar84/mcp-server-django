@@ -143,14 +143,8 @@ class MSBookingsProvider(BaseProvider):
             raise Exception('No tenant provided')
         
         try:
-            # Get MS Bookings credentials for this tenant (async database access)
-            from channels.db import database_sync_to_async
-            
-            @database_sync_to_async
-            def get_ms_bookings_credential(tenant):
-                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            
-            ms_cred = await get_ms_bookings_credential(tenant)
+            # Use synchronous database access to avoid threading issues
+            ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
         except MSBookingsCredential.DoesNotExist:
             raise Exception(f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})')
         
@@ -259,13 +253,9 @@ class MSGetStaffAvailabilityTool(BaseTool):
             
             # Get MS Bookings credentials for business ID and staff IDs
             from ...models import MSBookingsCredential
-            from channels.db import database_sync_to_async
             
-            @database_sync_to_async
-            def get_ms_bookings_credential(tenant):
-                return MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            
-            ms_cred = await get_ms_bookings_credential(tenant)
+            # Use synchronous database access to avoid threading issues
+            ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
             
         except Exception as e:
             error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
