@@ -64,7 +64,7 @@ class TwilioProvider(BaseProvider):
             {
                 'name': 'end_call',
                 'tool_class': TwilioEndCallTool,
-                'description': 'End an active Twilio call. Use this tool when the conversation is complete, there is an answering machine, long waiting time, or when instructed to terminate the call. Always use proper ending statements like "Thank you, have a good day, goodbye" before ending the call.',
+                'description': 'End an active Twilio call. IMPORTANT: Only use this tool AFTER you have completely finished the conversation with the user and confirmed they are ready to end the call. You MUST: 1) Complete all conversation objectives, 2) Ask if the user has any other questions, 3) Confirm the user is ready to end the call, 4) Use proper ending statements like "Thank you, have a great day, goodbye!", and 5) Wait for user acknowledgment before calling this tool. Use this tool when: conversation is fully complete, answering machine detected, long waiting time, or user explicitly requests to end call.',
                 'input_schema': {
                     'type': 'object',
                     'properties': {
@@ -625,9 +625,13 @@ class TwilioEndCallTool(BaseTool):
             if not call_sid:
                 return 'ERROR: call_sid is required'
             
-            # Make API call to end the call
+            # Add 5-second delay before ending the call to allow final words to be heard
+            import asyncio
             import requests
             import base64
+            
+            # Wait 5 seconds before ending the call
+            await asyncio.sleep(5)
             
             # Create basic auth header
             auth_string = f"{config['account_sid']}:{config['auth_token']}"
@@ -647,8 +651,9 @@ class TwilioEndCallTool(BaseTool):
                     "call_sid": result.get('sid'),
                     "status": result.get('status'),
                     "reason": reason,
-                    "message": "Call ended successfully",
+                    "message": "Call ended successfully after 5-second delay",
                     "duration": result.get('duration'),
+                    "delay_applied": "5_seconds",
                     "response": result
                 })
             else:
