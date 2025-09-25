@@ -624,16 +624,12 @@ class TwilioEndCallTool(BaseTool):
                 'auth_token': twilio_cred.get_auth_token()
             }
             
-            # Extract and validate call SID
+            # Extract call SID
             call_sid = arguments.get('call_sid')
             reason = arguments.get('reason', 'manual_end')
             
             if not call_sid:
                 return 'ERROR: call_sid is required'
-            
-            # Validate call_sid format (should start with CA and be 34 characters)
-            if not call_sid.startswith('CA') or len(call_sid) != 34:
-                return f'ERROR: Invalid call_sid format: {call_sid}. Expected format: CA followed by 32 characters'
             
             # Add 5-second delay before ending the call to allow final words to be heard
             import asyncio
@@ -647,39 +643,28 @@ class TwilioEndCallTool(BaseTool):
             auth_string = f"{config['account_sid']}:{config['auth_token']}"
             auth_bytes = base64.b64encode(auth_string.encode()).decode()
             
-            # Use Twilio's call update endpoint to end the call
-            # According to Twilio docs, we need to use POST with Status parameter
             response = requests.post(
                 f"https://api.twilio.com/2010-04-01/Accounts/{config['account_sid']}/Calls/{call_sid}.json",
                 headers={'Authorization': f'Basic {auth_bytes}'},
-                data={'Status': 'completed'},  # End the call
+                data={'Status': 'completed'},
                 timeout=10
             )
             
             if response.status_code == 200:
-                try:
-                    result = response.json()
-                    return json.dumps({
-                        "ok": True,
-                        "call_sid": result.get('sid'),
-                        "status": result.get('status'),
-                        "reason": reason,
-                        "message": "Call ended successfully after 5-second delay",
-                        "duration": result.get('duration'),
-                        "delay_applied": "5_seconds",
-                        "response": result
-                    })
-                except Exception as e:
-                    return f'ERROR: Failed to parse Twilio response: {str(e)}'
+                result = response.json()
+                return json.dumps({
+                    "ok": True,
+                    "call_sid": result.get('sid'),
+                    "status": result.get('status'),
+                    "reason": reason,
+                    "message": "Call ended successfully after 5-second delay",
+                    "duration": result.get('duration'),
+                    "delay_applied": "5_seconds",
+                    "response": result
+                })
             else:
-                # Try to parse error response for better error messages
-                try:
-                    error_data = response.json()
-                    error_code = error_data.get('code', 'Unknown')
-                    error_message = error_data.get('message', response.text)
-                    return f'ERROR: Failed to end call (HTTP {response.status_code}, Code: {error_code}): {error_message}'
-                except:
-                    return f'ERROR: Failed to end call (HTTP {response.status_code}): {response.text}'
+                error_details = response.text
+                return f'ERROR: Failed to end call (HTTP {response.status_code}): {error_details}'
                 
         except Exception as e:
             return f'ERROR: {str(e)}'
