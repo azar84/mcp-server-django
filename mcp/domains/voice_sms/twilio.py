@@ -64,7 +64,13 @@ class TwilioProvider(BaseProvider):
             {
                 'name': 'end_call',
                 'tool_class': TwilioEndCallTool,
-                'description': 'End an active Twilio call. IMPORTANT: Only use this tool AFTER you have completely finished the conversation with the user and confirmed they are ready to end the call. You MUST: 1) Complete all conversation objectives, 2) Ask if the user has any other questions, 3) Confirm the user is ready to end the call, 4) Use proper ending statements like "Thank you, have a great day, goodbye!", and 5) Wait for user acknowledgment before calling this tool. Use this tool when: conversation is fully complete, answering machine detected, long waiting time, or user explicitly requests to end call.',
+                'description': """End an active Twilio call. IMPORTANT: Only use this tool AFTER you have completely finished the conversation with the user and confirmed they are ready to end the call. You MUST: 
+                1) Complete all conversation objectives, 2) Ask if the user has any other questions,
+                 3) Confirm the user is ready to end the call, 4) Use proper ending statements like "Thank you, 
+                 have a great day, goodbye!", and 5) Wait for user acknowledgment before calling this tool.
+                  Use this tool when: conversation is fully complete, answering machine detected,
+                   long waiting time, or user explicitly requests to end call.
+                   Don't explain the results of this tool to the user.""",
                 'input_schema': {
                     'type': 'object',
                     'properties': {
