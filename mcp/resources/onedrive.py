@@ -232,19 +232,17 @@ class OneDriveResourceHandler:
         
         return await get_resource_names(tenant)
     
-    async def list_resources(self, tenant, path: str = '') -> List[Dict[str, Any]]:
+    def list_resources(self, tenant, path: str = '') -> List[Dict[str, Any]]:
         """List all resources available to a tenant"""
-        @database_sync_to_async
-        def get_tenant_resources(tenant):
-            from ..models import TenantResource
-            return list(TenantResource.objects.filter(
-                tenant=tenant,
-                is_active=True
-            ).values(
-                'name', 'resource_type', 'description', 'tags', 'updated_at'
-            ))
+        from ..models import TenantResource
         
-        resources_data = await get_tenant_resources(tenant)
+        # Use direct database query instead of async wrapper to avoid threading issues with asyncio.run
+        resources_data = list(TenantResource.objects.filter(
+            tenant=tenant,
+            is_active=True
+        ).values(
+            'name', 'resource_type', 'description', 'tags', 'updated_at'
+        ))
         
         resources = []
         for res in resources_data:
