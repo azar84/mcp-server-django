@@ -103,9 +103,9 @@ class GetResourceTool(BaseTool):
             from ...resources.knowledge_base import kb_resource
             import asyncio
             
-            # Try OneDrive/tenant resources first using asyncio.run to avoid threading issues on Heroku
+            # Try OneDrive/tenant resources first (now synchronous method)
             if onedrive_resource.can_handle(uri):
-                resource_data = asyncio.run(onedrive_resource.resolve_resource(uri, tenant, auth_token))
+                resource_data = onedrive_resource.resolve_resource(uri, tenant, auth_token)
             else:
                 # Fallback to knowledge base resources (global)
                 resource_data = kb_resource.resolve_resource(uri)

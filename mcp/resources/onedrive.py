@@ -19,7 +19,7 @@ class OneDriveResourceHandler:
         """Check if this handler can process the resource URI"""
         return any(resource_uri.startswith(f'{scheme}://') for scheme in self.supported_schemes)
     
-    async def resolve_resource(self, resource_uri: str, tenant, auth_token) -> Optional[Dict[str, Any]]:
+    def resolve_resource(self, resource_uri: str, tenant, auth_token) -> Optional[Dict[str, Any]]:
         """
         Resolve a tenant resource URI
         Examples:
@@ -28,41 +28,37 @@ class OneDriveResourceHandler:
         - onedrive://shared-file-link
         """
         if resource_uri.startswith('tenant://'):
-            return await self._resolve_tenant_resource(resource_uri, tenant)
+            return self._resolve_tenant_resource(resource_uri, tenant)
         elif resource_uri.startswith('onedrive://'):
-            return await self._resolve_onedrive_direct(resource_uri, tenant)
+            return self._resolve_onedrive_direct(resource_uri, tenant)
         
         return None
     
-    async def _resolve_tenant_resource(self, resource_uri: str, tenant) -> Optional[Dict[str, Any]]:
+    def _resolve_tenant_resource(self, resource_uri: str, tenant) -> Optional[Dict[str, Any]]:
         """Resolve tenant resource by name"""
         # Extract resource name from URI
         resource_name = resource_uri[9:]  # Remove 'tenant://'
         
-        @database_sync_to_async
-        def get_tenant_resource(tenant, name):
-            from ..models import TenantResource
-            try:
-                return TenantResource.objects.get(
-                    tenant=tenant,
-                    name=name,
-                    is_active=True
-                )
-            except TenantResource.DoesNotExist:
-                return None
-        
-        resource = await get_tenant_resource(tenant, resource_name)
+        from ..models import TenantResource
+        try:
+            resource = TenantResource.objects.get(
+                tenant=tenant,
+                name=resource_name,
+                is_active=True
+            )
+        except TenantResource.DoesNotExist:
+            resource = None
         if not resource:
             return {
                 'error': f'Resource not found: {resource_name}',
-                'available_resources': await self._list_tenant_resources(tenant)
+                'available_resources': self._list_tenant_resources_sync(tenant)
             }
         
         # Handle different resource types
         if resource.resource_type == 'onedrive':
-            return await self._fetch_onedrive_content(resource.resource_uri, resource)
+            return self._fetch_onedrive_content(resource.resource_uri, resource)
         elif resource.resource_type == 'url':
-            return await self._fetch_url_content(resource.resource_uri, resource)
+            return self._fetch_url_content(resource.resource_uri, resource)
         elif resource.resource_type == 'text':
             return {
                 'type': 'resource',
@@ -77,12 +73,12 @@ class OneDriveResourceHandler:
         
         return None
     
-    async def _resolve_onedrive_direct(self, resource_uri: str, tenant) -> Optional[Dict[str, Any]]:
+    def _resolve_onedrive_direct(self, resource_uri: str, tenant) -> Optional[Dict[str, Any]]:
         """Resolve OneDrive link directly"""
         onedrive_url = resource_uri[11:]  # Remove 'onedrive://'
-        return await self._fetch_onedrive_content(onedrive_url, None)
+        return self._fetch_onedrive_content(onedrive_url, None)
     
-    async def _fetch_onedrive_content(self, onedrive_url: str, resource=None) -> Dict[str, Any]:
+    def _fetch_onedrive_content(self, onedrive_url: str, resource=None) -> Dict[str, Any]:
         """Fetch content from OneDrive share link"""
         try:
             # Convert OneDrive share link to direct download link
@@ -161,7 +157,7 @@ class OneDriveResourceHandler:
                 'url': onedrive_url
             }
     
-    async def _fetch_url_content(self, url: str, resource) -> Dict[str, Any]:
+    def _fetch_url_content(self, url: str, resource) -> Dict[str, Any]:
         """Fetch content from a regular URL"""
         try:
             response = requests.get(url, timeout=30)
@@ -220,17 +216,13 @@ class OneDriveResourceHandler:
             print(f"OneDrive link conversion error: {e}")
             return None
     
-    async def _list_tenant_resources(self, tenant) -> List[str]:
+    def _list_tenant_resources_sync(self, tenant) -> List[str]:
         """List available resource names for a tenant"""
-        @database_sync_to_async
-        def get_resource_names(tenant):
-            from ..models import TenantResource
-            return list(TenantResource.objects.filter(
-                tenant=tenant,
-                is_active=True
-            ).values_list('name', flat=True))
-        
-        return await get_resource_names(tenant)
+        from ..models import TenantResource
+        return list(TenantResource.objects.filter(
+            tenant=tenant,
+            is_active=True
+        ).values_list('name', flat=True))
     
     def list_resources(self, tenant, path: str = '') -> List[Dict[str, Any]]:
         """List all resources available to a tenant"""

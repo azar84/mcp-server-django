@@ -649,9 +649,8 @@ class GetResourceTool(BaseTool):
             from ...resources.knowledge_base import kb_resource
             
             # Try OneDrive/tenant resources first using asyncio.run to avoid threading issues
-            import asyncio
             if onedrive_resource.can_handle(uri):
-                resource_data = asyncio.run(onedrive_resource.resolve_resource(uri, tenant, auth_token))
+                resource_data = onedrive_resource.resolve_resource(uri, tenant, auth_token)
             else:
                 # Fallback to knowledge base resources (global)
                 resource_data = kb_resource.resolve_resource(uri)
@@ -778,8 +777,7 @@ class SearchDocumentsTool(BaseTool):
                     try:
                         # Get the actual document content for search
                         from ...resources.onedrive import onedrive_resource
-                        import asyncio
-                        resource_data = asyncio.run(onedrive_resource.resolve_resource(resource['uri'], tenant, context.get('auth_token')))
+                        resource_data = onedrive_resource.resolve_resource(resource['uri'], tenant, context.get('auth_token'))
                         if resource_data and resource_data.get('content'):
                             content_text = resource_data['content'].lower()[:5000]  # First 5000 chars for performance
                     except:
