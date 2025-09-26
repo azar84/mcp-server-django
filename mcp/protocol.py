@@ -329,9 +329,10 @@ class MCPProtocolHandler:
         
         try:
             from .resources.onedrive import onedrive_resource
+            import asyncio
             
-            # Get tenant's resources
-            resources = await onedrive_resource.list_resources(tenant)
+            # Get tenant's resources using asyncio.run to avoid threading issues on Heroku
+            resources = asyncio.run(onedrive_resource.list_resources(tenant))
             
             return {
                 "jsonrpc": "2.0",
@@ -364,9 +365,10 @@ class MCPProtocolHandler:
             from .resources.onedrive import onedrive_resource
             from .resources.knowledge_base import kb_resource
             
-            # Try OneDrive/tenant resources first
+            # Try OneDrive/tenant resources first using asyncio.run to avoid threading issues on Heroku
+            import asyncio
             if onedrive_resource.can_handle(resource_uri):
-                resource_data = await onedrive_resource.resolve_resource(resource_uri, tenant, auth_token)
+                resource_data = asyncio.run(onedrive_resource.resolve_resource(resource_uri, tenant, auth_token))
             else:
                 # Fallback to knowledge base resources (global)
                 resource_data = kb_resource.resolve_resource(resource_uri)
