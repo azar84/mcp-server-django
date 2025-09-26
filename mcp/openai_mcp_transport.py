@@ -100,7 +100,17 @@ class OpenAIMCPTransport(View):
                     }
                 }, status=401)
             
+            # Check tenant is valid
             tenant = auth_token.tenant
+            if not tenant:
+                return JsonResponse({
+                    'jsonrpc': '2.0',
+                    'id': None,
+                    'error': {
+                        'code': -32001,
+                        'message': 'Invalid token: no tenant associated'
+                    }
+                }, status=401)
             
             # Parse request body - be permissive with content type
             try:
