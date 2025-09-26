@@ -101,17 +101,18 @@ class GetResourceTool(BaseTool):
             # Import here to avoid circular imports
             from ...resources.onedrive import onedrive_resource
             from ...resources.knowledge_base import kb_resource
+            import asyncio
             
-            # Try OneDrive/tenant resources first
+            # Try OneDrive/tenant resources first using asyncio.run to avoid threading issues on Heroku
             if onedrive_resource.can_handle(uri):
-                resource_data = await onedrive_resource.resolve_resource(uri, tenant, auth_token)
+                resource_data = asyncio.run(onedrive_resource.resolve_resource(uri, tenant, auth_token))
             else:
                 # Fallback to knowledge base resources (global)
                 resource_data = kb_resource.resolve_resource(uri)
             
             if resource_data is None:
-                # List available resources to help the user
-                available_resources = await onedrive_resource.list_resources(tenant)
+                # List available resources to help the user using asyncio.run to avoid threading issues on Heroku  
+                available_resources = asyncio.run(onedrive_resource.list_resources(tenant))
                 available_uris = [r['uri'] for r in available_resources] if available_resources else []
                 
                 return json.dumps({
@@ -175,9 +176,10 @@ class SearchDocumentsTool(BaseTool):
             # Import here to avoid circular imports
             from ...resources.onedrive import onedrive_resource
             from ...resources.knowledge_base import kb_resource
+            import asyncio
             
-            # Get all tenant resources
-            tenant_resources = await onedrive_resource.list_resources(tenant)
+            # Get all tenant resources using asyncio.run to avoid threading issues on Heroku
+            tenant_resources = asyncio.run(onedrive_resource.list_resources(tenant))
             
             # Get global knowledge base resources
             kb_resources = kb_resource.list_resources()
