@@ -38,7 +38,7 @@ class ResourceAccessProvider(BaseProvider):
                     'required': ['uri'],
                     'additionalProperties': False
                 },
-                'required_scopes': ['basic', 'read']
+                'required_scopes': ['basic']
             },
             {
                 'name': 'search_documents',
@@ -63,7 +63,7 @@ class ResourceAccessProvider(BaseProvider):
                     'required': ['query'],
                     'additionalProperties': False
                 },
-                'required_scopes': ['basic', 'read']
+                'required_scopes': ['basic']
             }
         ]
     
