@@ -175,6 +175,10 @@ class OpenAIMCPTransport(View):
         elif method == 'resources/read':
             return self._handle_resources_read(message_id, params, auth_token, tenant)
         
+        elif method == 'notifications/initialized':
+            # Handle notifications/initialized method - this is a standard MCP notification
+            return self._handle_notifications_initialized(message_id, auth_token, tenant)
+        
         else:
             return JsonResponse({
                 'jsonrpc': '2.0',
@@ -490,6 +494,21 @@ class OpenAIMCPTransport(View):
                     'message': f'Error reading resource: {str(e)}'
                 }
             })
+
+    def _handle_notifications_initialized(self, message_id, auth_token, tenant):
+        """Handle notifications/initialized method - this is a standard MCP notification"""
+        logger.info(f"Handling notifications/initialized for tenant: {tenant.name if tenant else 'Unknown'}")
+        
+        # Notifications are one-way messages, they don't need to return a result
+        # Just log that initialization notification was received
+        return JsonResponse({
+            'jsonrpc': '2.0',
+            'id': message_id,
+            'result': {
+                'notified': True,
+                'message': 'Initialization notification received'
+            }
+        }, status=200)
 
 
 @method_decorator(csrf_exempt, name='dispatch')
