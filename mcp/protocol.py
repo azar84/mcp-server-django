@@ -331,8 +331,8 @@ class MCPProtocolHandler:
             from .resources.onedrive import onedrive_resource
             import asyncio
             
-            # Get tenant's resources using asyncio.run to avoid threading issues on Heroku
-            resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            # Get tenant's resources (now synchronous method)
+            resources = onedrive_resource.list_resources(tenant)
             
             return {
                 "jsonrpc": "2.0",

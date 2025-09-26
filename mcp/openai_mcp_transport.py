@@ -388,11 +388,10 @@ class OpenAIMCPTransport(View):
             })
         
         try:
-            import asyncio
             from .resources.onedrive import onedrive_resource
             
-            # Get tenant's resources
-            resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            # Get tenant's resources using direct method call (now synchronous)
+            resources = onedrive_resource.list_resources(tenant)
             
             return JsonResponse({
                 'jsonrpc': '2.0',

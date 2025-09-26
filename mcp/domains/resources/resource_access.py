@@ -111,8 +111,8 @@ class GetResourceTool(BaseTool):
                 resource_data = kb_resource.resolve_resource(uri)
             
             if resource_data is None:
-                # List available resources to help the user using asyncio.run to avoid threading issues on Heroku  
-                available_resources = asyncio.run(onedrive_resource.list_resources(tenant))
+                # List available resources to help the user (now synchronous method)
+                available_resources = onedrive_resource.list_resources(tenant)
                 available_uris = [r['uri'] for r in available_resources] if available_resources else []
                 
                 return json.dumps({
@@ -178,8 +178,8 @@ class SearchDocumentsTool(BaseTool):
             from ...resources.knowledge_base import kb_resource
             import asyncio
             
-            # Get all tenant resources using asyncio.run to avoid threading issues on Heroku
-            tenant_resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            # Get all tenant resources (now synchronous method)
+            tenant_resources = onedrive_resource.list_resources(tenant)
             
             # Get global knowledge base resources
             kb_resources = kb_resource.list_resources()

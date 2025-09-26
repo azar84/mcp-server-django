@@ -214,8 +214,8 @@ class MCPStreamableHTTPView(View):
             import asyncio
             from .resources.onedrive import onedrive_resource
             
-            # Get tenant's resources synchronously (for streaming response)
-            resources = asyncio.run(onedrive_resource.list_resources(tenant))
+            # Get tenant's resources synchronously (direct method call)  
+            resources = onedrive_resource.list_resources(tenant)
             
             return {
                 'jsonrpc': '2.0',
