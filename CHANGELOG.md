@@ -1,5 +1,42 @@
 # MCP Server Changelog
 
+## Version 1.3.0 - Authentication & Resource Access Stabilization (2025-09-26)
+
+### 🔧 **Major Fixes**
+- **Authentication Flow Stabilization**: Fixed tenant validation to prevent authentication failures after async-to-sync conversions
+- **Resource Access Optimization**: Converted resource resolution methods from async to synchronous to eliminate threading deadlocks on Heroku
+- **Content Fetching Resolution**: Resolved "a coroutine was expected" errors when agents fetch document content  
+- **Scope-based Access Controls**: Streamlined permission scopes for resource tools from `['basic', 'read']` to `['basic']` for better agent accessibility
+
+### 🐛 **Bugfixes**
+- **Threading Issues**: Eliminated "You cannot submit onto CurrentThreadExecutor from its own thread" errors that appeared specifically in Heroku deployment environment
+- **Tenant Relation Corruption**: Fixed `auth_token.tenant` becoming None after async-to-sync conversions leading to authentication failures
+- **Resource Resolution**: Converted `onedrive_resource.resolve_resource()` from async to synchronous to prevent mounting `asyncio.run()` calls that caused synchronization issues
+- **Agent Documentation Access**: Resolved intermittent failures when agents attempted to retrieve document content where was previously working
+
+### ✅ **Authentication Improvements**
+- Added explicit tenant validation in MCP transport to ensure `auth_token.tenant` is valid before resource access
+- Enhanced error handling for malformed authentication tokens with meaningful error messages
+- Prevented "Authentication required for resource access" failures through early detection of missing tenant relationships
+
+### 🚀 **Performance & Stability**
+- Simplified database calls by removing unnecessary `@database_sync_to_async` decorators that contributed to threading conflicts
+- Eliminated async/await patterns for synchronous resource operations affecting `list_resources()` and `resolve_resource()`
+- Optimized imports and reduce circular dependency risks in resource resolution workflows
+
+### 🔄 **Breaking Changes**
+- **Resource Methods Now Synchronous**: `onedrive_resource.list_resources()` and `onedrive_resource.resolve_resource()` converted to synchronous calls
+- **Removed Async Wrappers**: Eliminated `asyncio.run()` calls throughout resource access layers for better threading compatibility
+
+### 📋 **Updated Features**
+- All authentication and multi-tenancy features remain unchanged
+- WebSocket connections work identically
+- Tool execution and credential management preserved
+- Admin API functionality maintained
+- Improved agent resource accessibility with streamlined authentication flow
+
+---
+
 ## Version 2.0.0 - In-Memory Channels Update
 
 ### 🔄 **Breaking Changes**
