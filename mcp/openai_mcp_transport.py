@@ -210,7 +210,9 @@ class OpenAIMCPTransport(View):
             
             # Check MS Bookings credentials
             try:
-                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                # MS Bookings credentials are now token-specific, not tenant-specific
+                # Check if any tokens for this tenant have MS Bookings credentials
+                if tenant.authtoken_set.filter(is_active=True, ms_bookings_credential__isnull=False, ms_bookings_credential__is_active=True).exists():
                     available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
             except:
                 pass

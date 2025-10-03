@@ -5,6 +5,25 @@ import uuid
 
 
 
+class AdminToken(models.Model):
+    """Model for admin authentication tokens (for tenant creation, etc.)"""
+    token = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255, help_text="Description of this admin token")
+    scopes = models.JSONField(default=list, help_text="List of admin scopes")
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_used = models.DateTimeField(null=True, blank=True)
+    created_by = models.CharField(max_length=255, blank=True, help_text="Who created this token")
+
+    class Meta:
+        verbose_name = "Admin Token"
+        verbose_name_plural = "Admin Tokens"
+
+    def __str__(self):
+        return f"Admin Token: {self.name} ({self.token[:8]}...)"
+
+
 class Tenant(models.Model):
     """Model for tenant management"""
     tenant_id = models.CharField(max_length=255, unique=True, default=uuid.uuid4)
@@ -31,6 +50,8 @@ class AuthToken(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used = models.DateTimeField(null=True, blank=True)
+    
+    # MS Bookings configuration is now in MSBookingsCredential model
 
     class Meta:
         verbose_name = "Authentication Token"
@@ -38,6 +59,22 @@ class AuthToken(models.Model):
 
     def __str__(self):
         return f"Token for {self.tenant.name}"
+    
+    def has_valid_azure_credentials(self):
+        """Check if Azure credentials are configured in environment"""
+        from django.conf import settings
+        return all([
+            settings.MS_BOOKINGS_AZURE_TENANT_ID,
+            settings.MS_BOOKINGS_CLIENT_ID,
+            settings.MS_BOOKINGS_CLIENT_SECRET
+        ])
+    
+    @property
+    def ms_bookings_client_id_preview(self):
+        """Show only first 8 characters of client ID from environment"""
+        from django.conf import settings
+        client_id = settings.MS_BOOKINGS_CLIENT_ID
+        return f"{client_id[:8]}..." if client_id else "Not set in environment"
 
 
 class MCPSession(models.Model):
@@ -77,21 +114,6 @@ class MCPTool(models.Model):
         return self.name
 
 
-class ClientCredential(models.Model):
-    """Model to store per-client credentials for tools"""
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE)
-    tool_name = models.CharField(max_length=100)
-    credential_key = models.CharField(max_length=255)  # e.g., 'api_key', 'username', 'token'
-    credential_value = models.TextField()  # Encrypted credential value
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        unique_together = ['tenant', 'tool_name', 'credential_key']
-
-    def __str__(self):
-        return f"{self.tenant.name} - {self.tool_name} - {self.credential_key}"
 
 
 class MCPToolCall(models.Model):
@@ -115,23 +137,15 @@ class MCPToolCall(models.Model):
 # Separate credential models for each tool/provider
 
 class MSBookingsCredential(models.Model):
-    """Microsoft Bookings specific credentials"""
-    tenant = models.OneToOneField(
-        Tenant, 
+    """Microsoft Bookings specific credentials - now token-based"""
+    auth_token = models.OneToOneField(
+        AuthToken, 
         on_delete=models.CASCADE,
         related_name='ms_bookings_credential'
     )
-    azure_tenant_id = models.CharField(
-        max_length=255,
-        help_text="Azure Active Directory tenant ID"
-    )
-    client_id = models.CharField(
-        max_length=255,
-        help_text="Azure application client ID"
-    )
-    client_secret = models.TextField(
-        help_text="Azure application client secret (encrypted)"
-    )
+    # Azure credentials come from global environment variables
+    # azure_tenant_id, client_id, client_secret are not stored in DB
+    
     business_id = models.CharField(
         max_length=255,
         help_text="Microsoft Bookings business ID or email address",
@@ -139,7 +153,7 @@ class MSBookingsCredential(models.Model):
     )
     staff_ids = models.JSONField(
         default=list,
-        help_text="List of default staff member GUIDs for this tenant"
+        help_text="List of default staff member GUIDs for this token"
     )
     service_id = models.CharField(
         max_length=255,
@@ -150,29 +164,27 @@ class MSBookingsCredential(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
-    def save(self, *args, **kwargs):
-        """Override save to encrypt client_secret if it's being set"""
-        if self.client_secret and not self._is_encrypted(self.client_secret):
-            from .auth import mcp_authenticator
-            # Encrypt the client secret before saving
-            self.client_secret = mcp_authenticator.cipher_suite.encrypt(
-                self.client_secret.encode()
-            ).decode()
-        super().save(*args, **kwargs)
+    def get_azure_credentials(self):
+        """Get Azure credentials from environment variables"""
+        from django.conf import settings
+        return {
+            'azure_tenant_id': settings.MS_BOOKINGS_AZURE_TENANT_ID,
+            'client_id': settings.MS_BOOKINGS_CLIENT_ID,
+            'client_secret': settings.MS_BOOKINGS_CLIENT_SECRET
+        }
     
-    def _is_encrypted(self, value):
-        """Check if a value is already encrypted (starts with gAAAAAB)"""
-        return value.startswith('gAAAAAB')
+    def has_valid_azure_credentials(self):
+        """Check if Azure credentials are configured in environment"""
+        from django.conf import settings
+        return all([
+            settings.MS_BOOKINGS_AZURE_TENANT_ID,
+            settings.MS_BOOKINGS_CLIENT_ID,
+            settings.MS_BOOKINGS_CLIENT_SECRET
+        ])
     
-    def get_client_secret(self):
-        """Get the decrypted client secret"""
-        from .auth import mcp_authenticator
-        try:
-            return mcp_authenticator.cipher_suite.decrypt(
-                self.client_secret.encode()
-            ).decode()
-        except Exception:
-            return self.client_secret  # Return as-is if decryption fails
+    def has_valid_configuration(self):
+        """Check if MS Bookings configuration is complete"""
+        return bool(self.business_id)
     
     class Meta:
         verbose_name = "MS Bookings Credential"
@@ -180,12 +192,14 @@ class MSBookingsCredential(models.Model):
         db_table = 'mcp_ms_bookings_credentials'
     
     def __str__(self):
-        return f"MS Bookings - {self.tenant.name}"
+        return f"MS Bookings - {self.auth_token.token[:8]}..."
     
     @property
     def client_id_preview(self):
-        """Show only first 8 characters of client ID"""
-        return f"{self.client_id[:8]}..." if self.client_id else "Not set"
+        """Show only first 8 characters of client ID from environment"""
+        from django.conf import settings
+        client_id = settings.MS_BOOKINGS_CLIENT_ID
+        return f"{client_id[:8]}..." if client_id else "Not set in environment"
 
 
 class CalendlyCredential(models.Model):

@@ -134,26 +134,27 @@ class MSBookingsProvider(BaseProvider):
         except:
             return False
     
-    async def get_access_token(self, tenant, ms_cred) -> str:
-        """Get access token using tenant's MS Bookings credentials"""
-        if not tenant:
-            raise Exception('No tenant provided')
+    async def get_access_token(self, auth_token) -> str:
+        """Get access token using global Azure credentials and token-specific configuration"""
+        if not auth_token:
+            raise Exception('No auth token provided')
         
-        if not ms_cred:
-            raise Exception(f'MS Bookings credentials not provided for tenant: {tenant.name} ({tenant.tenant_id})')
+        from django.conf import settings
         
-        if not ms_cred.azure_tenant_id or not ms_cred.client_id or not ms_cred.client_secret:
-            raise Exception(f'MS Bookings credentials incomplete for tenant: {tenant.name}. Missing: azure_tenant_id, client_id, or client_secret')
+        # Get Azure credentials from environment variables (global)
+        azure_tenant_id = settings.MS_BOOKINGS_AZURE_TENANT_ID
+        client_id = settings.MS_BOOKINGS_CLIENT_ID
+        client_secret = settings.MS_BOOKINGS_CLIENT_SECRET
         
-        # Get the decrypted client secret using the model method
-        client_secret = ms_cred.get_client_secret()
+        if not all([azure_tenant_id, client_id, client_secret]):
+            raise Exception(f'MS Bookings Azure credentials not configured in environment variables. Missing: MS_BOOKINGS_AZURE_TENANT_ID, MS_BOOKINGS_CLIENT_ID, or MS_BOOKINGS_CLIENT_SECRET')
         
         import httpx
         
-        token_url = f"https://login.microsoftonline.com/{ms_cred.azure_tenant_id}/oauth2/v2.0/token"
+        token_url = f"https://login.microsoftonline.com/{azure_tenant_id}/oauth2/v2.0/token"
         token_data = {
             'grant_type': 'client_credentials',
-            'client_id': ms_cred.client_id,
+            'client_id': client_id,
             'client_secret': client_secret,
             'scope': 'https://graph.microsoft.com/.default'
         }
@@ -254,32 +255,87 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials synchronously (bypass all async handling)
-            from ...models import MSBookingsCredential
-            
-            try:
-                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
-                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            except MSBookingsCredential.DoesNotExist:
+            # Get auth token from context
+            auth_token = context.get('auth_token')
+            if not auth_token:
                 return json.dumps({
                     'error': True,
-                    'message': f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
-                    'error_type': 'missing_credentials',
+                    'message': 'No auth token found in context',
+                    'error_type': 'missing_context',
                     'suggestions': [
-                        'Configure MS Bookings credentials for this tenant',
-                        'Ensure azure_tenant_id, client_id, and client_secret are set',
-                        'Activate the MS Bookings credential configuration'
+                        'Ensure the request includes proper authentication',
+                        'Check if the authentication token is valid'
                     ],
                     'status': None,
                     'details': {
-                        'tenant_id': tenant.tenant_id,
-                        'tenant_name': tenant.name,
-                        'missing_credentials': 'MS Bookings'
+                        'missing_context': 'auth_token'
                     }
                 })
             
-            # Add MS Bookings credentials to context for use in _execute_with_credentials
+            # Check if MS Bookings credentials are configured for this token
+            from ...models import MSBookingsCredential
+            
+            try:
+                ms_cred = MSBookingsCredential.objects.get(auth_token=auth_token, is_active=True)
+            except MSBookingsCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings credentials not configured for token: {auth_token.token[:8]}...',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS Bookings credentials for this token in the admin panel',
+                        'Create a new MS Bookings credential record linked to this token',
+                        'Ensure the token has the required MS Bookings scopes'
+                    ],
+                    'status': None,
+                    'details': {
+                        'token_id': auth_token.id,
+                        'token_preview': auth_token.token[:8],
+                        'missing_credentials': 'MS Bookings token credentials'
+                    }
+                })
+            
+            # Check if Azure credentials are configured in environment
+            if not ms_cred.has_valid_azure_credentials():
+                return json.dumps({
+                    'error': True,
+                    'message': 'MS Bookings Azure credentials not configured in environment variables',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS_BOOKINGS_AZURE_TENANT_ID in environment variables',
+                        'Configure MS_BOOKINGS_CLIENT_ID in environment variables',
+                        'Configure MS_BOOKINGS_CLIENT_SECRET in environment variables'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_credentials': 'Azure credentials in environment',
+                        'required_env_vars': ['MS_BOOKINGS_AZURE_TENANT_ID', 'MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET']
+                    }
+                })
+            
+            # Check if business configuration is complete
+            if not ms_cred.has_valid_configuration():
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings business configuration incomplete for token: {auth_token.token[:8]}...',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure business_id for this token in MS Bookings credentials',
+                        'Optionally set staff_ids and service_id'
+                    ],
+                    'status': None,
+                    'details': {
+                        'token_id': auth_token.id,
+                        'token_preview': auth_token.token[:8],
+                        'missing_credentials': 'MS Bookings business configuration'
+                    }
+                })
+            
+            # Add MS Bookings credentials to context
             context['ms_bookings_credential'] = ms_cred
+            
+            # Add auth token to context for use in _execute_with_credentials
+            context['auth_token'] = auth_token
             
             # Get provider-specific credentials from context
             credentials = context.get('credentials', {})
@@ -315,16 +371,12 @@ class MSGetStaffAvailabilityTool(BaseTool):
                                        credentials: Dict[str, str], 
                                        context: Dict[str, Any]) -> Any:
         try:
-            # Get tenant and MS Bookings credentials (retrieved at top level to avoid threading issues)
-            tenant = context.get('tenant')
-            if not tenant:
-                raise Exception('No tenant found in context')
+            # Get auth token (retrieved at top level to avoid threading issues)
+            auth_token = context.get('auth_token')
+            if not auth_token:
+                raise Exception('No auth token found in context')
             
-            ms_cred = context.get('ms_bookings_credential')
-            if not ms_cred:
-                raise Exception('MS Bookings credentials not found in context')
-            
-            access_token = await self.provider.get_access_token(tenant, ms_cred)
+            access_token = await self.provider.get_access_token(auth_token)
             
         except Exception as e:
             error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
@@ -340,7 +392,7 @@ class MSGetStaffAvailabilityTool(BaseTool):
                 ],
                 'status': None,
                 'details': {
-                    'tenant_id': tenant.tenant_id if tenant else 'None',
+                    'tenant_id': context.get('tenant', {}).get('tenant_id', 'Unknown'),
                     'error_type': type(e).__name__,
                     'credential_fields_required': ['azure_tenant_id', 'client_id', 'client_secret']
                 }
@@ -350,7 +402,11 @@ class MSGetStaffAvailabilityTool(BaseTool):
         start_local_input = arguments.get('startLocal')
         time_zone = arguments.get('timeZone')
         
-        # Get business_id and staff_ids from tenant credentials
+        # Get MS Bookings credentials from context
+        ms_cred = context.get('ms_bookings_credential')
+        if not ms_cred:
+            raise Exception('MS Bookings credentials not found in context')
+        
         business_id = ms_cred.business_id
         staff_ids = ms_cred.staff_ids or []
         
@@ -361,15 +417,15 @@ class MSGetStaffAvailabilityTool(BaseTool):
                 'message': 'MS Bookings business_id not configured in tenant credentials',
                 'error_type': 'configuration_missing',
                 'suggestions': [
-                    'Configure the business_id in the tenant\'s MS Bookings credentials',
+                    'Configure the business_id in the token\'s MS Bookings credentials',
                     'The business_id should be the Microsoft Bookings business ID or email address',
                     'Check the MS Bookings admin panel to get the correct business ID'
                 ],
                 'status': None,
                 'details': {
-                    'tenant_id': tenant.tenant_id,
+                    'tenant_id': context.get('tenant', {}).get('tenant_id', 'Unknown'),
                     'missing_field': 'business_id',
-                    'configuration_location': 'tenant MS Bookings credentials'
+                    'configuration_location': 'token MS Bookings credentials'
                 }
             })
         
@@ -636,32 +692,87 @@ class MSBookOnlineMeetingTool(BaseTool):
                     }
                 })
             
-            # Retrieve MS Bookings credentials synchronously (bypass all async handling)
-            from ...models import MSBookingsCredential
-            
-            try:
-                # Direct synchronous database access - let DJANGO_ALLOW_ASYNC_UNSAFE handle it
-                ms_cred = MSBookingsCredential.objects.get(tenant=tenant, is_active=True)
-            except MSBookingsCredential.DoesNotExist:
+            # Get auth token from context
+            auth_token = context.get('auth_token')
+            if not auth_token:
                 return json.dumps({
                     'error': True,
-                    'message': f'MS Bookings credentials not configured for tenant: {tenant.name} ({tenant.tenant_id})',
-                    'error_type': 'missing_credentials',
+                    'message': 'No auth token found in context',
+                    'error_type': 'missing_context',
                     'suggestions': [
-                        'Configure MS Bookings credentials for this tenant',
-                        'Ensure azure_tenant_id, client_id, and client_secret are set',
-                        'Activate the MS Bookings credential configuration'
+                        'Ensure the request includes proper authentication',
+                        'Check if the authentication token is valid'
                     ],
                     'status': None,
                     'details': {
-                        'tenant_id': tenant.tenant_id,
-                        'tenant_name': tenant.name,
-                        'missing_credentials': 'MS Bookings'
+                        'missing_context': 'auth_token'
                     }
                 })
             
-            # Add MS Bookings credentials to context for use in _execute_with_credentials
+            # Check if MS Bookings credentials are configured for this token
+            from ...models import MSBookingsCredential
+            
+            try:
+                ms_cred = MSBookingsCredential.objects.get(auth_token=auth_token, is_active=True)
+            except MSBookingsCredential.DoesNotExist:
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings credentials not configured for token: {auth_token.token[:8]}...',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS Bookings credentials for this token in the admin panel',
+                        'Create a new MS Bookings credential record linked to this token',
+                        'Ensure the token has the required MS Bookings scopes'
+                    ],
+                    'status': None,
+                    'details': {
+                        'token_id': auth_token.id,
+                        'token_preview': auth_token.token[:8],
+                        'missing_credentials': 'MS Bookings token credentials'
+                    }
+                })
+            
+            # Check if Azure credentials are configured in environment
+            if not ms_cred.has_valid_azure_credentials():
+                return json.dumps({
+                    'error': True,
+                    'message': 'MS Bookings Azure credentials not configured in environment variables',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure MS_BOOKINGS_AZURE_TENANT_ID in environment variables',
+                        'Configure MS_BOOKINGS_CLIENT_ID in environment variables',
+                        'Configure MS_BOOKINGS_CLIENT_SECRET in environment variables'
+                    ],
+                    'status': None,
+                    'details': {
+                        'missing_credentials': 'Azure credentials in environment',
+                        'required_env_vars': ['MS_BOOKINGS_AZURE_TENANT_ID', 'MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET']
+                    }
+                })
+            
+            # Check if business configuration is complete
+            if not ms_cred.has_valid_configuration():
+                return json.dumps({
+                    'error': True,
+                    'message': f'MS Bookings business configuration incomplete for token: {auth_token.token[:8]}...',
+                    'error_type': 'missing_credentials',
+                    'suggestions': [
+                        'Configure business_id for this token in MS Bookings credentials',
+                        'Optionally set staff_ids and service_id'
+                    ],
+                    'status': None,
+                    'details': {
+                        'token_id': auth_token.id,
+                        'token_preview': auth_token.token[:8],
+                        'missing_credentials': 'MS Bookings business configuration'
+                    }
+                })
+            
+            # Add MS Bookings credentials to context
             context['ms_bookings_credential'] = ms_cred
+            
+            # Add auth token to context for use in _execute_with_credentials
+            context['auth_token'] = auth_token
             
             # Get provider-specific credentials from context
             credentials = context.get('credentials', {})
@@ -689,15 +800,12 @@ class MSBookOnlineMeetingTool(BaseTool):
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                       credentials: Dict[str, str], 
                                       context: Dict[str, Any]) -> Any:
-        from channels.db import database_sync_to_async
-        
         try:
-            # Get access token using tenant's credentials
-            tenant = context.get('tenant')
-            ms_cred = context.get('ms_bookings_credential')
-            if not ms_cred:
-                return 'ERROR: MS Bookings credentials not found in context'
-            access_token = await self.provider.get_access_token(tenant, ms_cred)
+            # Get access token using token's credentials
+            auth_token = context.get('auth_token')
+            if not auth_token:
+                return 'ERROR: Auth token not found in context'
+            access_token = await self.provider.get_access_token(auth_token)
         except Exception as e:
             return f'ERROR: Failed to authenticate with MS Bookings: {str(e)}'
         
@@ -719,6 +827,11 @@ class MSBookOnlineMeetingTool(BaseTool):
             start_local = self._normalize_start_local(str(start_local_raw))
             
             # Get MS Bookings configuration from context (already retrieved in execute method)
+            auth_token = context.get('auth_token')
+            if not auth_token:
+                return 'ERROR: Auth token not found in context'
+            
+            # Get MS Bookings credentials from context
             ms_cred = context.get('ms_bookings_credential')
             if not ms_cred:
                 return 'ERROR: MS Bookings credentials not found in context'
@@ -728,9 +841,9 @@ class MSBookOnlineMeetingTool(BaseTool):
             staff_ids = ms_cred.staff_ids or []
             
             if not business_id:
-                return 'ERROR: MS Bookings business ID not configured in tenant credentials'
+                return 'ERROR: MS Bookings business ID not configured in token credentials'
             if not service_id:
-                return 'ERROR: MS Bookings service ID not configured in tenant credentials'
+                return 'ERROR: MS Bookings service ID not configured in token credentials'
             
             # Get service details
             import httpx

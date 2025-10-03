@@ -25,12 +25,15 @@ urlpatterns = [
     
     # Tenant management endpoints
     path('api/admin/tenants/', admin_views.TenantManagementView.as_view(), name='admin_tenants'),
+    path('api/admin/tenants/<str:tenant_id>/', admin_views.TenantManagementView.as_view(), name='admin_tenant_detail'),
     path('api/admin/tokens/', admin_views.TokenManagementView.as_view(), name='admin_tokens'),
     path('api/admin/tokens/<int:token_id>/', admin_views.TokenManagementView.as_view(), name='admin_token_detail'),
-    path('api/admin/credentials/', admin_views.CredentialManagementView.as_view(), name='admin_credentials'),
-    path('api/admin/credentials/<int:credential_id>/', admin_views.CredentialManagementView.as_view(), name='admin_credential_detail'),
     path('api/admin/scopes/', admin_views.ScopeManagementView.as_view(), name='admin_scopes'),
     path('api/admin/dashboard/<str:tenant_id>/', admin_views.TenantDashboardView.as_view(), name='admin_dashboard'),
+    
+    # Admin token management endpoints
+    path('api/admin/admin-tokens/', admin_views.AdminTokenManagementView.as_view(), name='admin_admin_tokens'),
+    path('api/admin/admin-tokens/<int:token_id>/', admin_views.AdminTokenManagementView.as_view(), name='admin_admin_token_detail'),
     
     # OpenAI-compatible token generation
     path('api/admin/openai-tokens/', admin_views.OpenAITokenView.as_view(), name='openai_tokens'),

@@ -352,7 +352,9 @@ class MCPStreamableHTTPView(View):
         
         # Check which credential types are available for this tenant
         try:
-            if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+            # MS Bookings credentials are now token-specific, not tenant-specific
+            # Check if any tokens for this tenant have MS Bookings credentials
+            if tenant.authtoken_set.filter(is_active=True, ms_bookings_credential__isnull=False, ms_bookings_credential__is_active=True).exists():
                 available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
         except:
             pass
@@ -494,11 +496,8 @@ class MCPStreamableHTTPView(View):
             available_credentials = []
             
             # Check which credential types are available for this tenant
-            try:
-                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
-                    available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
-            except:
-                pass
+            # MS Bookings credentials are now token-specific, not tenant-specific
+            # This check is handled in the token-specific logic above
             
             try:
                 if tenant.stripe_credential and tenant.stripe_credential.is_active:
@@ -695,11 +694,8 @@ class MCPToolsListView(View):
             tenant = auth_token.tenant
             
             # Check which credential types are available for this tenant
-            try:
-                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
-                    available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
-            except:
-                pass
+            # MS Bookings credentials are now token-specific, not tenant-specific
+            # This check is handled in the token-specific logic above
             
             try:
                 if tenant.stripe_credential and tenant.stripe_credential.is_active:

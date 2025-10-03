@@ -3,8 +3,8 @@ from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
 from .models import (
-    Tenant, AuthToken, MCPSession, MCPTool, MCPToolCall, ClientCredential,
-    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential, TwilioCredential, TenantResource
+    Tenant, AuthToken, MCPSession, MCPTool, MCPToolCall,
+    MSBookingsCredential, CalendlyCredential, GoogleCalendarCredential, StripeCredential, TwilioCredential, TenantResource, AdminToken
 )
 from .admin_config import mcp_admin_site
 
@@ -108,6 +108,11 @@ class AuthTokenAdmin(admin.ModelAdmin):
             return mark_safe(' '.join(scopes_html))
         return 'No scopes'
     scopes_display.short_description = 'Scopes'
+    
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        return form
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('tenant')
@@ -221,36 +226,6 @@ class MCPToolCallAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related('session', 'session__tenant')
 
 
-@admin.register(ClientCredential)
-class ClientCredentialAdmin(admin.ModelAdmin):
-    list_display = ('tenant', 'tool_name', 'credential_key', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('tool_name', 'is_active', 'created_at', 'tenant')
-    search_fields = ('tenant__name', 'tenant__tenant_id', 'tool_name', 'credential_key')
-    readonly_fields = ('created_at', 'updated_at')
-    
-    fieldsets = (
-        ('Credential Information', {
-            'fields': ('tenant', 'tool_name', 'credential_key', 'is_active')
-        }),
-        ('Value', {
-            'fields': ('credential_value',),
-            'description': 'Credential values are encrypted in the database'
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-    
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        # Make credential_value field a password field for security
-        if 'credential_value' in form.base_fields:
-            form.base_fields['credential_value'].widget.attrs['type'] = 'password'
-        return form
-    
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related('tenant')
 
 
 # Add credential model admin interfaces
@@ -258,22 +233,22 @@ class ClientCredentialAdmin(admin.ModelAdmin):
 
 @admin.register(MSBookingsCredential)
 class MSBookingsCredentialAdmin(admin.ModelAdmin):
-    list_display = ('tenant', 'business_id', 'service_id', 'azure_tenant_id', 'client_id_preview', 'is_active', 'created_at', 'updated_at')
+    list_display = ('auth_token', 'business_id', 'service_id', 'azure_credentials_status', 'configuration_status', 'is_active', 'created_at', 'updated_at')
     list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('tenant__name', 'tenant__tenant_id', 'azure_tenant_id', 'client_id', 'business_id', 'service_id')
-    readonly_fields = ('created_at', 'updated_at')
+    search_fields = ('auth_token__token', 'auth_token__tenant__name', 'business_id', 'service_id')
+    readonly_fields = ('created_at', 'updated_at', 'azure_credentials_status', 'configuration_status')
     
     fieldsets = (
-        ('Tenant', {
-            'fields': ('tenant',)
+        ('Token', {
+            'fields': ('auth_token',)
         }),
-        ('Azure Configuration', {
-            'fields': ('azure_tenant_id', 'client_id', 'client_secret'),
-            'description': 'Microsoft Azure application credentials for MS Bookings access'
+        ('Azure Configuration (Environment Variables)', {
+            'fields': ('azure_credentials_status',),
+            'description': 'Azure credentials are configured via environment variables: MS_BOOKINGS_AZURE_TENANT_ID, MS_BOOKINGS_CLIENT_ID, MS_BOOKINGS_CLIENT_SECRET'
         }),
-        ('Bookings Configuration', {
-            'fields': ('business_id', 'service_id', 'staff_ids'),
-            'description': 'Default business ID, service ID, and staff member GUIDs for this tenant'
+        ('MS Bookings Configuration', {
+            'fields': ('configuration_status', 'business_id', 'service_id', 'staff_ids'),
+            'description': 'Token-specific MS Bookings business configuration'
         }),
         ('Status', {
             'fields': ('is_active',)
@@ -284,15 +259,24 @@ class MSBookingsCredentialAdmin(admin.ModelAdmin):
         }),
     )
     
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        # Make client_secret field a password field for security
-        if 'client_secret' in form.base_fields:
-            form.base_fields['client_secret'].widget.attrs['type'] = 'password'
-        return form
+    def azure_credentials_status(self, obj):
+        """Show status of Azure credentials from environment"""
+        if obj.has_valid_azure_credentials():
+            return "✅ Configured in environment"
+        else:
+            return "❌ Missing in environment"
+    azure_credentials_status.short_description = "Azure Credentials Status"
+    
+    def configuration_status(self, obj):
+        """Show status of MS Bookings configuration"""
+        if obj.has_valid_configuration():
+            return "✅ Configured"
+        else:
+            return "❌ Not configured"
+    configuration_status.short_description = "Configuration Status"
     
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related('tenant')
+        return super().get_queryset(request).select_related('auth_token', 'auth_token__tenant')
 
 
 @admin.register(StripeCredential)
@@ -471,6 +455,77 @@ class TenantResourceAdmin(admin.ModelAdmin):
     
     def get_queryset(self, request):
         return super().get_queryset(request).select_related('tenant')
+
+
+@admin.register(AdminToken)
+class AdminTokenAdmin(admin.ModelAdmin):
+    list_display = ('name', 'token_preview', 'permissions_display', 'is_active', 'expires_at', 'last_used', 'created_at')
+    list_filter = ('is_active', 'expires_at', 'created_at', 'created_by')
+    search_fields = ('name', 'created_by')
+    readonly_fields = ('token', 'created_at', 'last_used')
+    
+    fieldsets = (
+        ('Token Information', {
+            'fields': ('name', 'is_active'),
+            'description': 'Token will be auto-generated when saved'
+        }),
+        ('Permissions', {
+            'fields': ('permissions',),
+            'description': 'Enter permissions as JSON array, e.g., ["create_tenant", "delete_tenant"]'
+        }),
+        ('Expiration', {
+            'fields': ('expires_at',),
+            'description': 'Leave blank for no expiration, or set future date'
+        }),
+        ('Metadata', {
+            'fields': ('created_by',),
+            'description': 'Who created this admin token'
+        }),
+        ('Generated Token', {
+            'fields': ('token',),
+            'classes': ('collapse',),
+            'description': 'Auto-generated secure admin token (read-only)'
+        }),
+        ('Usage Tracking', {
+            'fields': ('created_at', 'last_used'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def save_model(self, request, obj, form, change):
+        """Generate token if not present"""
+        if not obj.token:
+            import secrets
+            obj.token = secrets.token_urlsafe(32)
+        
+        # Set default expiration if not provided
+        if not obj.expires_at:
+            from django.utils import timezone
+            from datetime import timedelta
+            obj.expires_at = timezone.now() + timedelta(days=365)
+        
+        super().save_model(request, obj, form, change)
+        
+        # Show the generated token to the admin user
+        if not change:  # Only on creation
+            from django.contrib import messages
+            messages.success(
+                request, 
+                f'Admin token created successfully! Token: {obj.token} (Save this securely - it won\'t be shown again)'
+            )
+    
+    def token_preview(self, obj):
+        return f"{obj.token[:8]}..." if obj.token else "No token"
+    token_preview.short_description = 'Token'
+    
+    def permissions_display(self, obj):
+        if obj.permissions:
+            perms_html = []
+            for perm in obj.permissions:
+                perms_html.append(f'<span style="background-color: #e8f5e8; padding: 2px 6px; border-radius: 3px; margin: 1px;">{perm}</span>')
+            return mark_safe(' '.join(perms_html))
+        return 'No permissions'
+    permissions_display.short_description = 'Permissions'
 
 
 # Customize admin site header and title

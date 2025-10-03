@@ -11,6 +11,11 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -147,3 +152,8 @@ MCP_ENCRYPTION_KEY = 'ErPKIP07E_Jki8PkuVB5vjCVF7-Sz8hu1Glu7emKEzQ='
 
 # Allow async-unsafe operations for MS Bookings tools
 DJANGO_ALLOW_ASYNC_UNSAFE = True
+
+# Microsoft Bookings Configuration (Global for all tenants)
+MS_BOOKINGS_AZURE_TENANT_ID = os.getenv('MS_BOOKINGS_AZURE_TENANT_ID', '')
+MS_BOOKINGS_CLIENT_ID = os.getenv('MS_BOOKINGS_CLIENT_ID', '')
+MS_BOOKINGS_CLIENT_SECRET = os.getenv('MS_BOOKINGS_CLIENT_SECRET', '')

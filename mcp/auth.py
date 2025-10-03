@@ -8,8 +8,9 @@ from cryptography.fernet import Fernet
 from django.conf import settings
 import base64
 import os
+from datetime import timedelta
 from typing import Optional, Dict, Any, List
-from .models import AuthToken, Tenant, ClientCredential
+from .models import AuthToken, Tenant, AdminToken
 
 
 class MCPAuthenticator:
@@ -66,46 +67,6 @@ class MCPAuthenticator:
         # Check if token has all required scopes
         return required_scopes_set.issubset(token_scopes)
     
-    def get_tenant_credentials(self, tenant: Tenant, tool_name: str) -> Dict[str, str]:
-        """Get decrypted credentials for a tenant and tool"""
-        credentials = {}
-        
-        credential_objects = ClientCredential.objects.filter(
-            tenant=tenant,
-            tool_name=tool_name,
-            is_active=True
-        )
-        
-        for cred in credential_objects:
-            try:
-                decrypted_value = self.cipher_suite.decrypt(
-                    cred.credential_value.encode()
-                ).decode()
-                credentials[cred.credential_key] = decrypted_value
-            except Exception as e:
-                print(f"Failed to decrypt credential {cred.credential_key}: {e}")
-        
-        return credentials
-    
-    def store_tenant_credential(self, tenant: Tenant, tool_name: str, 
-                              credential_key: str, credential_value: str):
-        """Store encrypted credential for a tenant and tool"""
-        try:
-            encrypted_value = self.cipher_suite.encrypt(
-                credential_value.encode()
-            ).decode()
-            
-            ClientCredential.objects.update_or_create(
-                tenant=tenant,
-                tool_name=tool_name,
-                credential_key=credential_key,
-                defaults={
-                    'credential_value': encrypted_value,
-                    'is_active': True
-                }
-            )
-        except Exception as e:
-            raise ValidationError(f"Failed to store credential: {e}")
     
     def get_allowed_tools(self, auth_token: AuthToken) -> List[str]:
         """Get list of tools allowed for this token based on scopes"""
@@ -121,6 +82,80 @@ class MCPAuthenticator:
                 allowed_tools.append(tool_name)
         
         return allowed_tools
+
+
+class AdminAuthenticator:
+    """Handle admin authentication for tenant creation and management"""
+    
+    def validate_admin_token(self, token: str, required_scope: str = None) -> Optional[AdminToken]:
+        """Validate admin token and check scopes"""
+        try:
+            admin_token = AdminToken.objects.get(
+                token=token,
+                is_active=True
+            )
+            
+            # Check if token is expired
+            if admin_token.expires_at and admin_token.expires_at < timezone.now():
+                return None
+            
+            # Check scope if required
+            if required_scope and required_scope not in admin_token.scopes:
+                return None
+            
+            # Update last used timestamp
+            admin_token.last_used = timezone.now()
+            admin_token.save(update_fields=['last_used'])
+            
+            return admin_token
+            
+        except AdminToken.DoesNotExist:
+            return None
+    
+    def create_admin_token(self, name: str, scopes: List[str], 
+                          expires_in_days: int = None, created_by: str = "") -> AdminToken:
+        """Create a new admin token"""
+        import secrets
+        
+        token = secrets.token_urlsafe(32)
+        
+        expires_at = None
+        if expires_in_days:
+            expires_at = timezone.now() + timedelta(days=expires_in_days)
+        
+        admin_token = AdminToken.objects.create(
+            token=token,
+            name=name,
+            scopes=scopes,
+            expires_at=expires_at,
+            created_by=created_by,
+            is_active=True
+        )
+        
+        return admin_token
+
+
+class AdminAuthMiddleware:
+    """Authentication middleware for admin requests"""
+    
+    def __init__(self):
+        self.admin_authenticator = AdminAuthenticator()
+    
+    def authenticate_admin_request(self, request, required_scope: str = None):
+        """Authenticate admin request"""
+        # Check Authorization header
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if not auth_header.startswith('Bearer '):
+            return None, "Bearer token required for admin access"
+        
+        token = auth_header.split(' ', 1)[1]
+        
+        # Validate admin token
+        admin_token = self.admin_authenticator.validate_admin_token(token, required_scope)
+        if not admin_token:
+            return None, "Invalid or expired admin token"
+        
+        return admin_token, None
 
 
 class MCPAuthMiddleware:
@@ -191,3 +226,5 @@ class MCPAuthMiddleware:
 # Global instances
 mcp_authenticator = MCPAuthenticator()
 mcp_auth_middleware = MCPAuthMiddleware()
+admin_authenticator = AdminAuthenticator()
+admin_auth_middleware = AdminAuthMiddleware()

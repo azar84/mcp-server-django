@@ -132,7 +132,9 @@ class MCPProtocolHandler:
         available_credentials = []
         if tenant:
             try:
-                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                # MS Bookings credentials are now token-specific, not tenant-specific
+                # Check if any tokens for this tenant have MS Bookings credentials
+                if tenant.authtoken_set.filter(is_active=True, ms_bookings_credential__isnull=False, ms_bookings_credential__is_active=True).exists():
                     available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
             except:
                 pass
@@ -203,7 +205,9 @@ class MCPProtocolHandler:
         if tenant:
             # Add available credentials (same logic as in _handle_list_tools)
             try:
-                if tenant.ms_bookings_credential and tenant.ms_bookings_credential.is_active:
+                # MS Bookings credentials are now token-specific, not tenant-specific
+                # Check if any tokens for this tenant have MS Bookings credentials
+                if tenant.authtoken_set.filter(is_active=True, ms_bookings_credential__isnull=False, ms_bookings_credential__is_active=True).exists():
                     available_credentials.extend(['ms_bookings_azure_tenant_id', 'ms_bookings_client_id', 'ms_bookings_client_secret'])
             except:
                 pass
@@ -296,9 +300,8 @@ class MCPProtocolHandler:
             
             # Get tenant-specific credentials if tool requires them
             if self.tools[tool_name].get('requires_credentials') and tenant:
-                from .auth import mcp_authenticator
-                credentials = mcp_authenticator.get_tenant_credentials(tenant, tool_name)
-                tool_context['credentials'] = credentials
+                # Note: Generic credential system removed - use specific credential models instead
+                tool_context['credentials'] = {}
             
             result = await tool_handler(arguments, tool_context)
             

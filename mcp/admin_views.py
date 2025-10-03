@@ -11,8 +11,8 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 import uuid
 import secrets
-from .models import Tenant, AuthToken, ClientCredential
-from .auth import mcp_authenticator
+from .models import Tenant, AuthToken, AdminToken
+from .auth import mcp_authenticator, admin_auth_middleware
 from .jwt_utils import create_openai_compatible_token
 
 
@@ -41,8 +41,18 @@ class TenantManagementView(APIView):
         })
     
     def post(self, request):
-        """Create a new tenant"""
+        """Create a new tenant (requires admin token)"""
         try:
+            # Authenticate admin request
+            admin_token, error_message = admin_auth_middleware.authenticate_admin_request(
+                request, required_scope='admin'
+            )
+            if not admin_token:
+                return Response({
+                    'error': f'Admin authentication required: {error_message}',
+                    'required_scope': 'admin'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            
             name = request.data.get('name')
             description = request.data.get('description', '')
             
@@ -66,12 +76,49 @@ class TenantManagementView(APIView):
                     'description': tenant.description,
                     'is_active': tenant.is_active,
                     'created_at': tenant.created_at.isoformat()
-                }
+                },
+                'created_by_admin_token': admin_token.name
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
             return Response({
                 'error': f'Failed to create tenant: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request, tenant_id):
+        """Delete a tenant"""
+        try:
+            tenant = get_object_or_404(Tenant, tenant_id=tenant_id)
+            
+            # Check if tenant has active tokens or sessions
+            active_tokens = tenant.authtoken_set.filter(is_active=True).count()
+            active_sessions = tenant.mcpsession_set.filter(is_active=True).count()
+            
+            if active_tokens > 0 or active_sessions > 0:
+                return Response({
+                    'error': f'Cannot delete tenant with active tokens ({active_tokens}) or sessions ({active_sessions})',
+                    'tenant_id': tenant_id,
+                    'tenant_name': tenant.name,
+                    'active_tokens': active_tokens,
+                    'active_sessions': active_sessions,
+                    'suggestion': 'Deactivate all tokens and sessions first, or set tenant to inactive instead'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Store tenant info before deletion for response
+            tenant_name = tenant.name
+            
+            # Delete the tenant (this will cascade delete related objects)
+            tenant.delete()
+            
+            return Response({
+                'message': f'Tenant {tenant_name} deleted successfully',
+                'deleted_tenant_id': tenant_id,
+                'deleted_tenant_name': tenant_name
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to delete tenant: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -146,15 +193,46 @@ class TokenManagementView(APIView):
                 'error': f'Failed to create token: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    def delete(self, request, token_id):
-        """Deactivate a token"""
+    def delete(self, request, token_id=None):
+        """Deactivate a token by ID or by token string + tenant_id"""
         try:
-            auth_token = get_object_or_404(AuthToken, id=token_id)
+            # Check if token_id is provided in URL (admin interface)
+            if token_id:
+                auth_token = get_object_or_404(AuthToken, id=token_id)
+            else:
+                # Check if token and tenant_id are provided in request body (external apps)
+                token_string = request.data.get('token')
+                tenant_id = request.data.get('tenant_id')
+                
+                if not token_string or not tenant_id:
+                    return Response({
+                        'error': 'Either token_id in URL or both token and tenant_id in request body are required'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                try:
+                    tenant = Tenant.objects.get(tenant_id=tenant_id)
+                    auth_token = AuthToken.objects.get(token=token_string, tenant=tenant)
+                except Tenant.DoesNotExist:
+                    return Response({
+                        'error': 'Tenant not found'
+                    }, status=status.HTTP_404_NOT_FOUND)
+                except AuthToken.DoesNotExist:
+                    return Response({
+                        'error': 'Token not found for this tenant'
+                    }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Deactivate the token
             auth_token.is_active = False
             auth_token.save()
             
             return Response({
-                'message': 'Token deactivated successfully'
+                'message': 'Token deactivated successfully',
+                'token_info': {
+                    'token_preview': auth_token.token[:8] + '...',
+                    'tenant_id': auth_token.tenant.tenant_id,
+                    'tenant_name': auth_token.tenant.name,
+                    'deactivated_at': auth_token.updated_at.isoformat()
+                }
             })
             
         except Exception as e:
@@ -163,86 +241,6 @@ class TokenManagementView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class CredentialManagementView(APIView):
-    """Manage client credentials"""
-    
-    def get(self, request):
-        """List credentials for a tenant"""
-        tenant_id = request.query_params.get('tenant_id')
-        
-        if not tenant_id:
-            return Response({
-                'error': 'Tenant ID is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        tenant = get_object_or_404(Tenant, tenant_id=tenant_id)
-        credentials = ClientCredential.objects.filter(tenant=tenant, is_active=True)
-        
-        data = []
-        for cred in credentials:
-            data.append({
-                'id': cred.id,
-                'tool_name': cred.tool_name,
-                'credential_key': cred.credential_key,
-                'has_value': bool(cred.credential_value),
-                'created_at': cred.created_at.isoformat(),
-                'updated_at': cred.updated_at.isoformat()
-            })
-        
-        return Response({
-            'tenant_id': tenant_id,
-            'tenant_name': tenant.name,
-            'credentials': data,
-            'total_count': len(data)
-        })
-    
-    def post(self, request):
-        """Store credential for a tenant and tool"""
-        try:
-            tenant_id = request.data.get('tenant_id')
-            tool_name = request.data.get('tool_name')
-            credential_key = request.data.get('credential_key')
-            credential_value = request.data.get('credential_value')
-            
-            if not all([tenant_id, tool_name, credential_key, credential_value]):
-                return Response({
-                    'error': 'tenant_id, tool_name, credential_key, and credential_value are required'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            tenant = get_object_or_404(Tenant, tenant_id=tenant_id)
-            
-            # Store encrypted credential
-            mcp_authenticator.store_tenant_credential(
-                tenant, tool_name, credential_key, credential_value
-            )
-            
-            return Response({
-                'message': f'Credential {credential_key} stored for {tool_name}',
-                'tenant_id': tenant_id,
-                'tool_name': tool_name,
-                'credential_key': credential_key
-            }, status=status.HTTP_201_CREATED)
-            
-        except Exception as e:
-            return Response({
-                'error': f'Failed to store credential: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-    def delete(self, request, credential_id):
-        """Delete a credential"""
-        try:
-            credential = get_object_or_404(ClientCredential, id=credential_id)
-            credential.is_active = False
-            credential.save()
-            
-            return Response({
-                'message': 'Credential deactivated successfully'
-            })
-            
-        except Exception as e:
-            return Response({
-                'error': f'Failed to deactivate credential: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class ScopeManagementView(APIView):
@@ -385,4 +383,86 @@ class OpenAITokenView(APIView):
         except Exception as e:
             return Response({
                 'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AdminTokenManagementView(APIView):
+    """Manage admin tokens for tenant creation and management"""
+    
+    def get(self, request):
+        """List all admin tokens"""
+        tokens = AdminToken.objects.all()
+        data = []
+        
+        for token in tokens:
+            data.append({
+                'id': token.id,
+                'name': token.name,
+                'token_preview': token.token[:8] + '...',
+                'scopes': token.scopes,
+                'is_active': token.is_active,
+                'expires_at': token.expires_at.isoformat() if token.expires_at else None,
+                'created_at': token.created_at.isoformat(),
+                'last_used': token.last_used.isoformat() if token.last_used else None,
+                'created_by': token.created_by
+            })
+        
+        return Response({
+            'admin_tokens': data,
+            'total_count': len(data)
+        })
+    
+    def post(self, request):
+        """Create a new admin token"""
+        try:
+            name = request.data.get('name')
+            scopes = request.data.get('scopes', ['admin'])
+            expires_in_days = request.data.get('expires_in_days', 365)
+            created_by = request.data.get('created_by', 'API')
+            
+            if not name:
+                return Response({
+                    'error': 'Token name is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create admin token
+            admin_token = admin_authenticator.create_admin_token(
+                name=name,
+                scopes=scopes,
+                expires_in_days=expires_in_days,
+                created_by=created_by
+            )
+            
+            return Response({
+                'message': f'Admin token {name} created successfully',
+                'token_info': {
+                    'id': admin_token.id,
+                    'name': admin_token.name,
+                    'token': admin_token.token,  # Return full token only on creation
+                    'scopes': admin_token.scopes,
+                    'expires_at': admin_token.expires_at.isoformat() if admin_token.expires_at else None,
+                    'created_at': admin_token.created_at.isoformat(),
+                    'created_by': admin_token.created_by
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to create admin token: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request, token_id):
+        """Deactivate an admin token"""
+        try:
+            admin_token = get_object_or_404(AdminToken, id=token_id)
+            admin_token.is_active = False
+            admin_token.save()
+            
+            return Response({
+                'message': 'Admin token deactivated successfully'
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to deactivate admin token: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
