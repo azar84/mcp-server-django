@@ -153,7 +153,6 @@ MCP_ENCRYPTION_KEY = 'ErPKIP07E_Jki8PkuVB5vjCVF7-Sz8hu1Glu7emKEzQ='
 # Allow async-unsafe operations for MS Bookings tools
 DJANGO_ALLOW_ASYNC_UNSAFE = True
 
-# Microsoft Bookings Configuration (Global for all tenants)
-MS_BOOKINGS_AZURE_TENANT_ID = os.getenv('MS_BOOKINGS_AZURE_TENANT_ID', '')
+# Microsoft Bookings Configuration (Global client credentials, tenant ID is per-token)
 MS_BOOKINGS_CLIENT_ID = os.getenv('MS_BOOKINGS_CLIENT_ID', '')
 MS_BOOKINGS_CLIENT_SECRET = os.getenv('MS_BOOKINGS_CLIENT_SECRET', '')

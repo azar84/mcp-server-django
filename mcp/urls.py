@@ -35,6 +35,10 @@ urlpatterns = [
     path('api/admin/admin-tokens/', admin_views.AdminTokenManagementView.as_view(), name='admin_admin_tokens'),
     path('api/admin/admin-tokens/<int:token_id>/', admin_views.AdminTokenManagementView.as_view(), name='admin_admin_token_detail'),
     
+    # MS Bookings credentials management endpoints
+    path('api/admin/ms-bookings-credentials/', admin_views.MSBookingsCredentialsView.as_view(), name='admin_ms_bookings_credentials'),
+    path('api/admin/ms-bookings-credentials/<int:token_id>/', admin_views.MSBookingsCredentialsView.as_view(), name='admin_ms_bookings_credential_detail'),
+    
     # OpenAI-compatible token generation
     path('api/admin/openai-tokens/', admin_views.OpenAITokenView.as_view(), name='openai_tokens'),
 ]

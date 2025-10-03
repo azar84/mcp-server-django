@@ -179,6 +179,7 @@ class TokenManagementView(APIView):
             return Response({
                 'message': f'Token created for tenant {tenant.name}',
                 'token_info': {
+                    'id': auth_token.id,  # Token ID for reference
                     'token': token,  # Return full token only on creation
                     'tenant_id': tenant.tenant_id,
                     'tenant_name': tenant.name,
@@ -383,6 +384,262 @@ class OpenAITokenView(APIView):
         except Exception as e:
             return Response({
                 'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class MSBookingsCredentialsView(APIView):
+    """Manage MS Bookings credentials for tokens"""
+    
+    def get(self, request, token_id=None):
+        """List MS Bookings credentials or get specific one"""
+        try:
+            # Authenticate admin request
+            admin_token, error_message = admin_auth_middleware.authenticate_admin_request(
+                request, required_scope='admin'
+            )
+            if not admin_token:
+                return Response({
+                    'error': f'Admin authentication required: {error_message}',
+                    'required_scope': 'admin'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            if token_id:
+                # Get specific credential by token ID
+                auth_token = get_object_or_404(AuthToken, id=token_id)
+                try:
+                    ms_credential = auth_token.ms_bookings_credential
+                    return Response({
+                        'credential': {
+                            'id': ms_credential.id,
+                            'token_id': auth_token.id,
+                            'token_preview': auth_token.token[:8] + '...',
+                            'tenant_id': auth_token.tenant.tenant_id,
+                            'tenant_name': auth_token.tenant.name,
+                            'azure_tenant_id': ms_credential.azure_tenant_id,
+                            'business_id': ms_credential.business_id,
+                            'service_id': ms_credential.service_id,
+                            'staff_ids': ms_credential.staff_ids,
+                            'is_active': ms_credential.is_active,
+                            'azure_credentials_status': '✅ Configured' if ms_credential.has_valid_azure_credentials() else '❌ Missing',
+                            'configuration_status': '✅ Configured' if ms_credential.has_valid_configuration() else '❌ Not configured',
+                            'created_at': ms_credential.created_at.isoformat(),
+                            'updated_at': ms_credential.updated_at.isoformat()
+                        }
+                    })
+                except:
+                    return Response({
+                        'error': 'MS Bookings credential not found for this token',
+                        'token_id': token_id,
+                        'token_preview': auth_token.token[:8] + '...'
+                    }, status=status.HTTP_404_NOT_FOUND)
+            else:
+                # List all MS Bookings credentials
+                from .models import MSBookingsCredential
+                credentials = MSBookingsCredential.objects.select_related('auth_token', 'auth_token__tenant').all()
+                data = []
+                
+                for cred in credentials:
+                    data.append({
+                        'id': cred.id,
+                        'token_id': cred.auth_token.id,
+                        'token_preview': cred.auth_token.token[:8] + '...',
+                        'tenant_id': cred.auth_token.tenant.tenant_id,
+                        'tenant_name': cred.auth_token.tenant.name,
+                        'azure_tenant_id': cred.azure_tenant_id,
+                        'business_id': cred.business_id,
+                        'service_id': cred.service_id,
+                        'staff_ids': cred.staff_ids,
+                        'is_active': cred.is_active,
+                        'azure_credentials_status': '✅ Configured' if cred.has_valid_azure_credentials() else '❌ Missing',
+                        'configuration_status': '✅ Configured' if cred.has_valid_configuration() else '❌ Not configured',
+                        'created_at': cred.created_at.isoformat(),
+                        'updated_at': cred.updated_at.isoformat()
+                    })
+                
+                return Response({
+                    'credentials': data,
+                    'total_count': len(data)
+                })
+                
+        except Exception as e:
+            return Response({
+                'error': f'Failed to retrieve MS Bookings credentials: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Create MS Bookings credential for a token"""
+        try:
+            # Authenticate admin request
+            admin_token, error_message = admin_auth_middleware.authenticate_admin_request(
+                request, required_scope='admin'
+            )
+            if not admin_token:
+                return Response({
+                    'error': f'Admin authentication required: {error_message}',
+                    'required_scope': 'admin'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            from .models import MSBookingsCredential
+            
+            token_id = request.data.get('token_id')
+            azure_tenant_id = request.data.get('azure_tenant_id', '')
+            business_id = request.data.get('business_id', '')
+            service_id = request.data.get('service_id', '')
+            staff_ids = request.data.get('staff_ids', [])
+            
+            if not token_id:
+                return Response({
+                    'error': 'token_id is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get the auth token
+            auth_token = get_object_or_404(AuthToken, id=token_id)
+            
+            # Check if credential already exists
+            if hasattr(auth_token, 'ms_bookings_credential'):
+                return Response({
+                    'error': 'MS Bookings credential already exists for this token',
+                    'token_id': token_id,
+                    'existing_credential_id': auth_token.ms_bookings_credential.id
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create the credential
+            ms_credential = MSBookingsCredential.objects.create(
+                auth_token=auth_token,
+                azure_tenant_id=azure_tenant_id,
+                business_id=business_id,
+                service_id=service_id,
+                staff_ids=staff_ids,
+                is_active=True
+            )
+            
+            return Response({
+                'message': f'MS Bookings credential created for token {auth_token.token[:8]}...',
+                'credential': {
+                    'id': ms_credential.id,
+                    'token_id': auth_token.id,
+                    'token_preview': auth_token.token[:8] + '...',
+                    'tenant_id': auth_token.tenant.tenant_id,
+                    'tenant_name': auth_token.tenant.name,
+                    'azure_tenant_id': ms_credential.azure_tenant_id,
+                    'business_id': ms_credential.business_id,
+                    'service_id': ms_credential.service_id,
+                    'staff_ids': ms_credential.staff_ids,
+                    'is_active': ms_credential.is_active,
+                    'azure_credentials_status': '✅ Configured' if ms_credential.has_valid_azure_credentials() else '❌ Missing',
+                    'configuration_status': '✅ Configured' if ms_credential.has_valid_configuration() else '❌ Not configured',
+                    'created_at': ms_credential.created_at.isoformat(),
+                    'updated_at': ms_credential.updated_at.isoformat()
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to create MS Bookings credential: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def put(self, request, token_id):
+        """Update MS Bookings credential for a token"""
+        try:
+            # Authenticate admin request
+            admin_token, error_message = admin_auth_middleware.authenticate_admin_request(
+                request, required_scope='admin'
+            )
+            if not admin_token:
+                return Response({
+                    'error': f'Admin authentication required: {error_message}',
+                    'required_scope': 'admin'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            auth_token = get_object_or_404(AuthToken, id=token_id)
+            
+            try:
+                ms_credential = auth_token.ms_bookings_credential
+            except:
+                return Response({
+                    'error': 'MS Bookings credential not found for this token',
+                    'token_id': token_id,
+                    'token_preview': auth_token.token[:8] + '...'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Update fields if provided
+            if 'azure_tenant_id' in request.data:
+                ms_credential.azure_tenant_id = request.data['azure_tenant_id']
+            if 'business_id' in request.data:
+                ms_credential.business_id = request.data['business_id']
+            if 'service_id' in request.data:
+                ms_credential.service_id = request.data['service_id']
+            if 'staff_ids' in request.data:
+                ms_credential.staff_ids = request.data['staff_ids']
+            if 'is_active' in request.data:
+                ms_credential.is_active = request.data['is_active']
+            
+            ms_credential.save()
+            
+            return Response({
+                'message': f'MS Bookings credential updated for token {auth_token.token[:8]}...',
+                'credential': {
+                    'id': ms_credential.id,
+                    'token_id': auth_token.id,
+                    'token_preview': auth_token.token[:8] + '...',
+                    'tenant_id': auth_token.tenant.tenant_id,
+                    'tenant_name': auth_token.tenant.name,
+                    'azure_tenant_id': ms_credential.azure_tenant_id,
+                    'business_id': ms_credential.business_id,
+                    'service_id': ms_credential.service_id,
+                    'staff_ids': ms_credential.staff_ids,
+                    'is_active': ms_credential.is_active,
+                    'azure_credentials_status': '✅ Configured' if ms_credential.has_valid_azure_credentials() else '❌ Missing',
+                    'configuration_status': '✅ Configured' if ms_credential.has_valid_configuration() else '❌ Not configured',
+                    'created_at': ms_credential.created_at.isoformat(),
+                    'updated_at': ms_credential.updated_at.isoformat()
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to update MS Bookings credential: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request, token_id):
+        """Delete MS Bookings credential for a token"""
+        try:
+            # Authenticate admin request
+            admin_token, error_message = admin_auth_middleware.authenticate_admin_request(
+                request, required_scope='admin'
+            )
+            if not admin_token:
+                return Response({
+                    'error': f'Admin authentication required: {error_message}',
+                    'required_scope': 'admin'
+                }, status=status.HTTP_401_UNAUTHORIZED)
+            auth_token = get_object_or_404(AuthToken, id=token_id)
+            
+            try:
+                ms_credential = auth_token.ms_bookings_credential
+            except:
+                return Response({
+                    'error': 'MS Bookings credential not found for this token',
+                    'token_id': token_id,
+                    'token_preview': auth_token.token[:8] + '...'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Store info before deletion
+            credential_id = ms_credential.id
+            token_preview = auth_token.token[:8] + '...'
+            tenant_name = auth_token.tenant.name
+            
+            # Delete the credential
+            ms_credential.delete()
+            
+            return Response({
+                'message': f'MS Bookings credential deleted for token {token_preview}',
+                'deleted_credential_id': credential_id,
+                'token_id': token_id,
+                'token_preview': token_preview,
+                'tenant_name': tenant_name
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': f'Failed to delete MS Bookings credential: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 

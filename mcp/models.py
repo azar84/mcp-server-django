@@ -143,8 +143,13 @@ class MSBookingsCredential(models.Model):
         on_delete=models.CASCADE,
         related_name='ms_bookings_credential'
     )
-    # Azure credentials come from global environment variables
-    # azure_tenant_id, client_id, client_secret are not stored in DB
+    
+    # Azure tenant ID is now per-token
+    azure_tenant_id = models.CharField(
+        max_length=255,
+        help_text="Azure AD tenant ID for this token",
+        default=""
+    )
     
     business_id = models.CharField(
         max_length=255,
@@ -165,19 +170,19 @@ class MSBookingsCredential(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     def get_azure_credentials(self):
-        """Get Azure credentials from environment variables"""
+        """Get Azure credentials - tenant_id from token, client_id/secret from environment"""
         from django.conf import settings
         return {
-            'azure_tenant_id': settings.MS_BOOKINGS_AZURE_TENANT_ID,
+            'azure_tenant_id': self.azure_tenant_id,
             'client_id': settings.MS_BOOKINGS_CLIENT_ID,
             'client_secret': settings.MS_BOOKINGS_CLIENT_SECRET
         }
     
     def has_valid_azure_credentials(self):
-        """Check if Azure credentials are configured in environment"""
+        """Check if Azure credentials are configured - tenant_id from token, others from environment"""
         from django.conf import settings
         return all([
-            settings.MS_BOOKINGS_AZURE_TENANT_ID,
+            self.azure_tenant_id,
             settings.MS_BOOKINGS_CLIENT_ID,
             settings.MS_BOOKINGS_CLIENT_SECRET
         ])

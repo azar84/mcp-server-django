@@ -126,7 +126,7 @@ class MSBookingsProvider(BaseProvider):
             
             # Test the token by calling Microsoft Graph
             response = requests.get(
-                f"{self.config['api_base']}/bookingBusinesses",
+                f"{self.config['api_base']}/solutions/bookingBusinesses",
                 headers={'Authorization': f'Bearer {access_token}'},
                 timeout=10
             )
@@ -134,20 +134,23 @@ class MSBookingsProvider(BaseProvider):
         except:
             return False
     
-    async def get_access_token(self, auth_token) -> str:
-        """Get access token using global Azure credentials and token-specific configuration"""
+    async def get_access_token(self, auth_token, ms_credential) -> str:
+        """Get access token using token-specific Azure tenant ID and global client credentials"""
         if not auth_token:
             raise Exception('No auth token provided')
         
+        if not ms_credential:
+            raise Exception('No MS Bookings credential provided')
+        
         from django.conf import settings
         
-        # Get Azure credentials from environment variables (global)
-        azure_tenant_id = settings.MS_BOOKINGS_AZURE_TENANT_ID
+        # Get Azure credentials - tenant_id from token, client_id/secret from environment
+        azure_tenant_id = ms_credential.azure_tenant_id
         client_id = settings.MS_BOOKINGS_CLIENT_ID
         client_secret = settings.MS_BOOKINGS_CLIENT_SECRET
         
         if not all([azure_tenant_id, client_id, client_secret]):
-            raise Exception(f'MS Bookings Azure credentials not configured in environment variables. Missing: MS_BOOKINGS_AZURE_TENANT_ID, MS_BOOKINGS_CLIENT_ID, or MS_BOOKINGS_CLIENT_SECRET')
+            raise Exception(f'MS Bookings Azure credentials not configured. Missing: azure_tenant_id in token, MS_BOOKINGS_CLIENT_ID, or MS_BOOKINGS_CLIENT_SECRET in environment')
         
         import httpx
         
@@ -237,10 +240,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
     
     async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
         """Execute the staff availability check with credentials retrieved at top level"""
+        print(f"[DEBUG] MSGetStaffAvailabilityTool.execute - Starting execution")
+        print(f"[DEBUG] Arguments received: {arguments}")
+        print(f"[DEBUG] Context keys: {list(context.keys())}")
+        
         try:
             # Get MS Bookings credentials at the top level to avoid threading issues
             tenant = context.get('tenant')
+            print(f"[DEBUG] Tenant found: {tenant}")
             if not tenant:
+                print(f"[DEBUG] ERROR: No tenant found in context")
                 return json.dumps({
                     'error': True,
                     'message': 'No tenant found in context',
@@ -274,10 +283,28 @@ class MSGetStaffAvailabilityTool(BaseTool):
             
             # Check if MS Bookings credentials are configured for this token
             from ...models import MSBookingsCredential
+            from asgiref.sync import sync_to_async
+            
+            print(f"[DEBUG] Getting MS Bookings credential from database...")
+            print(f"[DEBUG] Auth token details: ID={auth_token.id}, Token={auth_token.token[:8]}..., Active={auth_token.is_active}")
+            
+            @sync_to_async
+            def get_ms_credential():
+                try:
+                    return auth_token.ms_bookings_credential
+                except:
+                    return None
             
             try:
-                ms_cred = MSBookingsCredential.objects.get(auth_token=auth_token, is_active=True)
-            except MSBookingsCredential.DoesNotExist:
+                ms_cred = await get_ms_credential()
+                if not ms_cred or not ms_cred.is_active:
+                    ms_cred = None
+                print(f"[DEBUG] MS Bookings credential retrieved: {ms_cred}")
+            except Exception as e:
+                print(f"[DEBUG] ERROR: MS Bookings credential not found - Exception: {type(e).__name__}: {str(e)}")
+                ms_cred = None
+            
+            if not ms_cred:
                 return json.dumps({
                     'error': True,
                     'message': f'MS Bookings credentials not configured for token: {auth_token.token[:8]}...',
@@ -296,25 +323,30 @@ class MSGetStaffAvailabilityTool(BaseTool):
                 })
             
             # Check if Azure credentials are configured in environment
+            print(f"[DEBUG] Checking Azure credentials...")
             if not ms_cred.has_valid_azure_credentials():
+                print(f"[DEBUG] ERROR: Azure credentials not valid")
                 return json.dumps({
                     'error': True,
-                    'message': 'MS Bookings Azure credentials not configured in environment variables',
+                    'message': 'MS Bookings credentials missing: customer tenant_id or app client credentials',
                     'error_type': 'missing_credentials',
                     'suggestions': [
-                        'Configure MS_BOOKINGS_AZURE_TENANT_ID in environment variables',
+                        'Configure azure_tenant_id in MS Bookings credential for this token',
                         'Configure MS_BOOKINGS_CLIENT_ID in environment variables',
                         'Configure MS_BOOKINGS_CLIENT_SECRET in environment variables'
                     ],
                     'status': None,
                     'details': {
-                        'missing_credentials': 'Azure credentials in environment',
-                        'required_env_vars': ['MS_BOOKINGS_AZURE_TENANT_ID', 'MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET']
+                        'missing_credentials': 'Azure credentials configuration',
+                        'required_env_vars': ['MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET'],
+                        'required_fields_on_credential': ['azure_tenant_id']
                     }
                 })
             
             # Check if business configuration is complete
+            print(f"[DEBUG] Checking business configuration...")
             if not ms_cred.has_valid_configuration():
+                print(f"[DEBUG] ERROR: Business configuration not valid")
                 return json.dumps({
                     'error': True,
                     'message': f'MS Bookings business configuration incomplete for token: {auth_token.token[:8]}...',
@@ -332,7 +364,9 @@ class MSGetStaffAvailabilityTool(BaseTool):
                 })
             
             # Add MS Bookings credentials to context
+            print(f"[DEBUG] Adding MS Bookings credential to context...")
             context['ms_bookings_credential'] = ms_cred
+            print(f"[DEBUG] MS Bookings credential added to context")
             
             # Add auth token to context for use in _execute_with_credentials
             context['auth_token'] = auth_token
@@ -370,13 +404,38 @@ class MSGetStaffAvailabilityTool(BaseTool):
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                        credentials: Dict[str, str], 
                                        context: Dict[str, Any]) -> Any:
+        print(f"[DEBUG] MSGetStaffAvailabilityTool._execute_with_credentials - Starting")
+        print(f"[DEBUG] Arguments: {arguments}")
+        print(f"[DEBUG] Credentials: {list(credentials.keys())}")
+        
         try:
             # Get auth token (retrieved at top level to avoid threading issues)
             auth_token = context.get('auth_token')
+            print(f"[DEBUG] Auth token in context: {auth_token}")
             if not auth_token:
+                print(f"[DEBUG] ERROR: No auth token found in context")
                 raise Exception('No auth token found in context')
             
-            access_token = await self.provider.get_access_token(auth_token)
+            print(f"[DEBUG] Getting access token from provider...")
+            ms_cred = context.get('ms_bookings_credential')
+            access_token = await self.provider.get_access_token(auth_token, ms_cred)
+            print(f"[DEBUG] Access token obtained: {access_token[:20]}..." if access_token else "None")
+            
+            # Debug JWT claims to verify token contents
+            if access_token:
+                import json, base64
+                def _dump_jwt_claims(token: str) -> dict:
+                    try:
+                        b64 = token.split('.')[1]
+                        # base64url decode:
+                        padding = '=' * (-len(b64) % 4)
+                        return json.loads(base64.urlsafe_b64decode(b64 + padding).decode('utf-8'))
+                    except Exception:
+                        return {}
+                
+                claims = _dump_jwt_claims(access_token)
+                print(f"[DEBUG] JWT Claims - aud: {claims.get('aud')}, tid: {claims.get('tid')}")
+                print(f"[DEBUG] JWT Claims - roles: {claims.get('roles')}, scp: {claims.get('scp')}")
             
         except Exception as e:
             error_msg = str(e) if str(e) else f'Unknown authentication error: {type(e).__name__}'
@@ -401,14 +460,18 @@ class MSGetStaffAvailabilityTool(BaseTool):
         # Parse arguments
         start_local_input = arguments.get('startLocal')
         time_zone = arguments.get('timeZone')
+        print(f"[DEBUG] Parsed arguments - startLocal: {start_local_input}, timeZone: {time_zone}")
         
         # Get MS Bookings credentials from context
         ms_cred = context.get('ms_bookings_credential')
+        print(f"[DEBUG] MS Bookings credential from context: {ms_cred}")
         if not ms_cred:
+            print(f"[DEBUG] ERROR: MS Bookings credentials not found in context")
             raise Exception('MS Bookings credentials not found in context')
         
         business_id = ms_cred.business_id
         staff_ids = ms_cred.staff_ids or []
+        print(f"[DEBUG] Using business_id: {business_id}, staff_ids: {staff_ids}")
         
         # Validate that business_id is configured
         if not business_id:
@@ -427,6 +490,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     'missing_field': 'business_id',
                     'configuration_location': 'token MS Bookings credentials'
                 }
+            })
+        
+        # Validate that staff_ids is configured
+        if not staff_ids:
+            return json.dumps({
+                'error': True,
+                'message': 'No staff_ids configured for this business',
+                'error_type': 'missing_configuration',
+                'status': 400,
+                'details': {'business_id': business_id}
             })
         
         if not time_zone:
@@ -449,13 +522,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
         
         try:
             # Normalize start time and compute end time (7 days later)
+            print(f"[DEBUG] Normalizing start time: {start_local_input}")
             start_local = self.normalize_start_local(str(start_local_input))
+            print(f"[DEBUG] Normalized start time: {start_local}")
             
             # Parse start time and add 7 days for end time
             from datetime import datetime, timedelta
             start_dt = datetime.fromisoformat(start_local)
             end_dt = start_dt + timedelta(days=7)
             end_local = end_dt.strftime('%Y-%m-%dT%H:%M:%S')
+            print(f"[DEBUG] Calculated end time: {end_local}")
             
         except ValueError as e:
             return json.dumps({
@@ -495,11 +571,16 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     'timeZone': time_zone
                 }
             }
+            print(f"[DEBUG] API payload: {payload}")
+            
+            api_url = f"{self.provider.config['api_base']}/solutions/bookingBusinesses('{business_id}')/getStaffAvailability"
+            print(f"[DEBUG] API URL: {api_url}")
             
             # Call MS Bookings getStaffAvailability API
             async with httpx.AsyncClient() as client:
+                print(f"[DEBUG] Making API request...")
                 response = await client.post(
-                    f"{self.provider.config['api_base']}/solutions/bookingBusinesses/{business_id}/getStaffAvailability",
+                    api_url,
                     headers={
                         'Authorization': f'Bearer {access_token}',
                         'Content-Type': 'application/json'
@@ -507,11 +588,14 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     json=payload,
                     timeout=30
                 )
+                print(f"[DEBUG] API response status: {response.status_code}")
             
             # Return response in the same format as your JavaScript tool
             if response.status_code == 200:
+                print(f"[DEBUG] API request successful!")
                 api_response = response.json()
-                return json.dumps({
+                print(f"[DEBUG] API response data: {api_response}")
+                result = json.dumps({
                     'ok': True,
                     'businessId': business_id,
                     'staffIds': staff_ids,
@@ -522,13 +606,29 @@ class MSGetStaffAvailabilityTool(BaseTool):
                     },
                     'response': api_response
                 })
+                print(f"[DEBUG] Returning success result")
+                return result
             else:
+                print(f"[DEBUG] API request failed with status: {response.status_code}")
                 # Parse error response for better agent guidance
                 try:
                     error_data = response.json()
                     api_error_msg = error_data.get('error', {}).get('message', 'Unknown API error')
+                    print(f"[DEBUG] API error data: {error_data}")
+                    
+                    # Extract request-id for Microsoft support
+                    request_id = error_data.get('error', {}).get('innerError', {}).get('request-id', 
+                                   response.headers.get('request-id', 'Not available'))
+                    print(f"[DEBUG] Microsoft request-id: {request_id}")
                 except:
                     api_error_msg = response.text or 'Unknown API error'
+                    request_id = response.headers.get('request-id', 'Not available')
+                    print(f"[DEBUG] API error text: {response.text}")
+                    print(f"[DEBUG] Microsoft request-id: {request_id}")
+                
+                # Capture WWW-Authenticate header for detailed auth diagnostics
+                www_auth = response.headers.get('WWW-Authenticate', 'Not available')
+                print(f"[DEBUG] WWW-Authenticate: {www_auth}")
                 
                 return json.dumps({
                     'error': True,
@@ -547,7 +647,9 @@ class MSGetStaffAvailabilityTool(BaseTool):
                         'api_error': api_error_msg,
                         'business_id': business_id,
                         'staff_ids': staff_ids,
-                        'request_payload': payload
+                        'request_payload': payload,
+                        'microsoft_request_id': request_id,
+                        'www_authenticate': www_auth
                     }
                 })
                 
@@ -674,10 +776,16 @@ class MSBookOnlineMeetingTool(BaseTool):
     
     async def execute(self, arguments: Dict[str, Any], context: Dict[str, Any]) -> Any:
         """Execute the booking tool with credentials retrieved at top level (EXACT COPY of availability tool)"""
+        print(f"[DEBUG] MSBookOnlineMeetingTool.execute - Starting execution")
+        print(f"[DEBUG] Arguments received: {arguments}")
+        print(f"[DEBUG] Context keys: {list(context.keys())}")
+        
         try:
             # Get MS Bookings credentials at the top level to avoid threading issues
             tenant = context.get('tenant')
+            print(f"[DEBUG] Tenant found: {tenant}")
             if not tenant:
+                print(f"[DEBUG] ERROR: No tenant found in context")
                 return json.dumps({
                     'error': True,
                     'message': 'No tenant found in context',
@@ -711,10 +819,28 @@ class MSBookOnlineMeetingTool(BaseTool):
             
             # Check if MS Bookings credentials are configured for this token
             from ...models import MSBookingsCredential
+            from asgiref.sync import sync_to_async
+            
+            print(f"[DEBUG] Getting MS Bookings credential from database...")
+            print(f"[DEBUG] Auth token details: ID={auth_token.id}, Token={auth_token.token[:8]}..., Active={auth_token.is_active}")
+            
+            @sync_to_async
+            def get_ms_credential():
+                try:
+                    return auth_token.ms_bookings_credential
+                except:
+                    return None
             
             try:
-                ms_cred = MSBookingsCredential.objects.get(auth_token=auth_token, is_active=True)
-            except MSBookingsCredential.DoesNotExist:
+                ms_cred = await get_ms_credential()
+                if not ms_cred or not ms_cred.is_active:
+                    ms_cred = None
+                print(f"[DEBUG] MS Bookings credential retrieved: {ms_cred}")
+            except Exception as e:
+                print(f"[DEBUG] ERROR: MS Bookings credential not found - Exception: {type(e).__name__}: {str(e)}")
+                ms_cred = None
+            
+            if not ms_cred:
                 return json.dumps({
                     'error': True,
                     'message': f'MS Bookings credentials not configured for token: {auth_token.token[:8]}...',
@@ -733,25 +859,30 @@ class MSBookOnlineMeetingTool(BaseTool):
                 })
             
             # Check if Azure credentials are configured in environment
+            print(f"[DEBUG] Checking Azure credentials...")
             if not ms_cred.has_valid_azure_credentials():
+                print(f"[DEBUG] ERROR: Azure credentials not valid")
                 return json.dumps({
                     'error': True,
-                    'message': 'MS Bookings Azure credentials not configured in environment variables',
+                    'message': 'MS Bookings credentials missing: customer tenant_id or app client credentials',
                     'error_type': 'missing_credentials',
                     'suggestions': [
-                        'Configure MS_BOOKINGS_AZURE_TENANT_ID in environment variables',
+                        'Configure azure_tenant_id in MS Bookings credential for this token',
                         'Configure MS_BOOKINGS_CLIENT_ID in environment variables',
                         'Configure MS_BOOKINGS_CLIENT_SECRET in environment variables'
                     ],
                     'status': None,
                     'details': {
-                        'missing_credentials': 'Azure credentials in environment',
-                        'required_env_vars': ['MS_BOOKINGS_AZURE_TENANT_ID', 'MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET']
+                        'missing_credentials': 'Azure credentials configuration',
+                        'required_env_vars': ['MS_BOOKINGS_CLIENT_ID', 'MS_BOOKINGS_CLIENT_SECRET'],
+                        'required_fields_on_credential': ['azure_tenant_id']
                     }
                 })
             
             # Check if business configuration is complete
+            print(f"[DEBUG] Checking business configuration...")
             if not ms_cred.has_valid_configuration():
+                print(f"[DEBUG] ERROR: Business configuration not valid")
                 return json.dumps({
                     'error': True,
                     'message': f'MS Bookings business configuration incomplete for token: {auth_token.token[:8]}...',
@@ -769,7 +900,9 @@ class MSBookOnlineMeetingTool(BaseTool):
                 })
             
             # Add MS Bookings credentials to context
+            print(f"[DEBUG] Adding MS Bookings credential to context...")
             context['ms_bookings_credential'] = ms_cred
+            print(f"[DEBUG] MS Bookings credential added to context")
             
             # Add auth token to context for use in _execute_with_credentials
             context['auth_token'] = auth_token
@@ -800,13 +933,40 @@ class MSBookOnlineMeetingTool(BaseTool):
     async def _execute_with_credentials(self, arguments: Dict[str, Any], 
                                       credentials: Dict[str, str], 
                                       context: Dict[str, Any]) -> Any:
+        print(f"[DEBUG] MSBookOnlineMeetingTool._execute_with_credentials - Starting")
+        print(f"[DEBUG] Arguments: {arguments}")
+        print(f"[DEBUG] Credentials: {list(credentials.keys())}")
+        
         try:
             # Get access token using token's credentials
             auth_token = context.get('auth_token')
+            print(f"[DEBUG] Auth token in context: {auth_token}")
             if not auth_token:
+                print(f"[DEBUG] ERROR: No auth token found in context")
                 return 'ERROR: Auth token not found in context'
-            access_token = await self.provider.get_access_token(auth_token)
+            
+            print(f"[DEBUG] Getting access token from provider...")
+            ms_cred = context.get('ms_bookings_credential')
+            access_token = await self.provider.get_access_token(auth_token, ms_cred)
+            print(f"[DEBUG] Access token obtained: {access_token[:20]}..." if access_token else "None")
+            
+            # Debug JWT claims to verify token contents
+            if access_token:
+                import json, base64
+                def _dump_jwt_claims(token: str) -> dict:
+                    try:
+                        b64 = token.split('.')[1]
+                        # base64url decode:
+                        padding = '=' * (-len(b64) % 4)
+                        return json.loads(base64.urlsafe_b64decode(b64 + padding).decode('utf-8'))
+                    except Exception:
+                        return {}
+                
+                claims = _dump_jwt_claims(access_token)
+                print(f"[DEBUG] JWT Claims - aud: {claims.get('aud')}, tid: {claims.get('tid')}")
+                print(f"[DEBUG] JWT Claims - roles: {claims.get('roles')}, scp: {claims.get('scp')}")
         except Exception as e:
+            print(f"[DEBUG] ERROR: Failed to authenticate: {str(e)}")
             return f'ERROR: Failed to authenticate with MS Bookings: {str(e)}'
         
         try:
@@ -833,33 +993,45 @@ class MSBookOnlineMeetingTool(BaseTool):
             
             # Get MS Bookings credentials from context
             ms_cred = context.get('ms_bookings_credential')
+            print(f"[DEBUG] MS Bookings credential from context: {ms_cred}")
             if not ms_cred:
+                print(f"[DEBUG] ERROR: MS Bookings credentials not found in context")
                 return 'ERROR: MS Bookings credentials not found in context'
             
             business_id = ms_cred.business_id
             service_id = arguments.get('serviceId') or ms_cred.service_id
             staff_ids = ms_cred.staff_ids or []
+            print(f"[DEBUG] Using business_id: {business_id}, service_id: {service_id}, staff_ids: {staff_ids}")
             
             if not business_id:
+                print(f"[DEBUG] ERROR: Business ID not configured")
                 return 'ERROR: MS Bookings business ID not configured in token credentials'
             if not service_id:
+                print(f"[DEBUG] ERROR: Service ID not configured")
                 return 'ERROR: MS Bookings service ID not configured in token credentials'
             
             # Get service details
             import httpx
+            service_url = f"https://graph.microsoft.com/v1.0/solutions/bookingBusinesses('{business_id}')/services('{service_id}')"
+            print(f"[DEBUG] Getting service details from: {service_url}")
+            
             async with httpx.AsyncClient() as client:
                 service_response = await client.get(
-                    f"https://graph.microsoft.com/beta/solutions/bookingBusinesses/{business_id}/services/{service_id}",
+                    service_url,
                     headers={'Authorization': f'Bearer {access_token}'},
                     timeout=10
                 )
+                print(f"[DEBUG] Service response status: {service_response.status_code}")
                 
                 if service_response.status_code != 200:
+                    print(f"[DEBUG] ERROR: Failed to get service details: {service_response.text}")
                     return f'ERROR: Failed to get service details: {service_response.text}'
                 
                 service_data = service_response.json()
+                print(f"[DEBUG] Service data: {service_data}")
                 default_dur_mins = self._iso_duration_to_minutes(service_data.get('defaultDuration')) or 30
                 service_name = service_data.get('displayName', 'AI Booked Meeting')
+                print(f"[DEBUG] Service name: {service_name}, default duration: {default_dur_mins} minutes")
                 
                 # Calculate duration - use provided value, service default, or 30 minutes
                 duration_minutes = arguments.get('durationMinutes')
@@ -928,8 +1100,12 @@ class MSBookOnlineMeetingTool(BaseTool):
                 }
                 
                 # Create the appointment
+                booking_url = f"https://graph.microsoft.com/v1.0/solutions/bookingBusinesses('{business_id}')/appointments"
+                print(f"[DEBUG] Creating appointment at: {booking_url}")
+                print(f"[DEBUG] Booking payload: {payload}")
+                
                 response = await client.post(
-                    f"https://graph.microsoft.com/beta/solutions/bookingBusinesses/{business_id}/appointments",
+                    booking_url,
                     headers={
                         'Authorization': f'Bearer {access_token}',
                         'Content-Type': 'application/json'
@@ -937,10 +1113,13 @@ class MSBookOnlineMeetingTool(BaseTool):
                     json=payload,
                     timeout=10
                 )
+                print(f"[DEBUG] Booking response status: {response.status_code}")
                 
                 if response.status_code in [200, 201]:
+                    print(f"[DEBUG] Booking successful!")
                     resp_data = response.json()
-                    return json.dumps({
+                    print(f"[DEBUG] Booking response data: {resp_data}")
+                    result = json.dumps({
                         "ok": True,
                         "appointmentId": resp_data.get('id'),
                         "joinUrl": resp_data.get('onlineMeetingUrl') or resp_data.get('anonymousJoinWebUrl'),
@@ -954,9 +1133,14 @@ class MSBookOnlineMeetingTool(BaseTool):
                         "payloadSent": payload,
                         "response": resp_data
                     })
+                    print(f"[DEBUG] Returning booking success result")
+                    return result
                 else:
+                    print(f"[DEBUG] Booking failed with status: {response.status_code}")
                     error_details = response.text
+                    print(f"[DEBUG] Booking error details: {error_details}")
                     request_id = response.headers.get('request-id') or response.headers.get('client-request-id')
+                    print(f"[DEBUG] Request ID: {request_id}")
                     return f'ERROR: Booking failed (HTTP {response.status_code}){f" [request-id: {request_id}]" if request_id else ""} :: {error_details}'
                 
         except Exception as e:

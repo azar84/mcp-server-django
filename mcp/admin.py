@@ -233,18 +233,18 @@ class MCPToolCallAdmin(admin.ModelAdmin):
 
 @admin.register(MSBookingsCredential)
 class MSBookingsCredentialAdmin(admin.ModelAdmin):
-    list_display = ('auth_token', 'business_id', 'service_id', 'azure_credentials_status', 'configuration_status', 'is_active', 'created_at', 'updated_at')
+    list_display = ('auth_token', 'token_preview', 'azure_tenant_id', 'business_id', 'service_id', 'is_active', 'created_at', 'updated_at')
     list_filter = ('is_active', 'created_at', 'updated_at')
-    search_fields = ('auth_token__token', 'auth_token__tenant__name', 'business_id', 'service_id')
+    search_fields = ('auth_token__token', 'auth_token__tenant__name', 'azure_tenant_id', 'business_id', 'service_id')
     readonly_fields = ('created_at', 'updated_at', 'azure_credentials_status', 'configuration_status')
     
     fieldsets = (
         ('Token', {
             'fields': ('auth_token',)
         }),
-        ('Azure Configuration (Environment Variables)', {
-            'fields': ('azure_credentials_status',),
-            'description': 'Azure credentials are configured via environment variables: MS_BOOKINGS_AZURE_TENANT_ID, MS_BOOKINGS_CLIENT_ID, MS_BOOKINGS_CLIENT_SECRET'
+        ('Azure Configuration', {
+            'fields': ('azure_tenant_id', 'azure_credentials_status'),
+            'description': 'Azure tenant ID is per-token. Client ID and secret come from environment variables: MS_BOOKINGS_CLIENT_ID, MS_BOOKINGS_CLIENT_SECRET'
         }),
         ('MS Bookings Configuration', {
             'fields': ('configuration_status', 'business_id', 'service_id', 'staff_ids'),
@@ -258,6 +258,17 @@ class MSBookingsCredentialAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
     )
+    
+    def token_preview(self, obj):
+        """Show first 4 and last 4 characters of the token"""
+        if obj.auth_token and obj.auth_token.token:
+            token = obj.auth_token.token
+            if len(token) > 8:
+                return f"{token[:4]}...{token[-4:]}"
+            else:
+                return f"{token[:4]}..."
+        return "No token"
+    token_preview.short_description = "Token Preview"
     
     def azure_credentials_status(self, obj):
         """Show status of Azure credentials from environment"""
@@ -459,7 +470,7 @@ class TenantResourceAdmin(admin.ModelAdmin):
 
 @admin.register(AdminToken)
 class AdminTokenAdmin(admin.ModelAdmin):
-    list_display = ('name', 'token_preview', 'permissions_display', 'is_active', 'expires_at', 'last_used', 'created_at')
+    list_display = ('id', 'name', 'token_preview', 'permissions_display', 'is_active', 'expires_at', 'last_used', 'created_at')
     list_filter = ('is_active', 'expires_at', 'created_at', 'created_by')
     search_fields = ('name', 'created_by')
     readonly_fields = ('token', 'created_at', 'last_used')
@@ -470,8 +481,8 @@ class AdminTokenAdmin(admin.ModelAdmin):
             'description': 'Token will be auto-generated when saved'
         }),
         ('Permissions', {
-            'fields': ('permissions',),
-            'description': 'Enter permissions as JSON array, e.g., ["create_tenant", "delete_tenant"]'
+            'fields': ('scopes',),
+            'description': 'Enter scopes as JSON array, e.g., ["admin", "create_tenant", "delete_tenant"]'
         }),
         ('Expiration', {
             'fields': ('expires_at',),
@@ -519,9 +530,9 @@ class AdminTokenAdmin(admin.ModelAdmin):
     token_preview.short_description = 'Token'
     
     def permissions_display(self, obj):
-        if obj.permissions:
+        if obj.scopes:
             perms_html = []
-            for perm in obj.permissions:
+            for perm in obj.scopes:
                 perms_html.append(f'<span style="background-color: #e8f5e8; padding: 2px 6px; border-radius: 3px; margin: 1px;">{perm}</span>')
             return mark_safe(' '.join(perms_html))
         return 'No permissions'
